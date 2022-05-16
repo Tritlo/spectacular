@@ -22,8 +22,8 @@ import Application.TermSearch.Utils (theArrowNode, arrowType, var1, var2, var3, 
 import Data.ECTA (union)
 import Data.ECTA.Paths (getPath, mkEqConstraints, path, Path)
 import Data.Proxy
-import Data.Maybe (mapMaybe)
-import Debug.Trace (traceShowId)
+import Data.Maybe (mapMaybe, fromJust)
+import Debug.Trace (traceShowId, trace)
 
 import Test.QuickCheck (Arbitrary(..), Property(..), Testable(..), Gen(..))
 import Test.QuickCheck.Property
@@ -54,7 +54,7 @@ instance Arbitrary Acc where
 
 sigGivens :: Sig -> Sig 
 sigGivens sigs = eqDef
-                 <> eqLaws
+                 -- <> eqLaws
                  <> Map.fromList (mapMaybe toEqInst (Map.keys allCons))
                  <> Map.fromList (concatMap consNames (Map.assocs allCons))
   where trs = map sfTypeRep $ Map.elems sigs
@@ -66,11 +66,11 @@ sigGivens sigs = eqDef
         cons (TVar _) = Map.empty
         allCons = Map.unionsWith max $ map cons trs
         toEqInst e@(TCons t []) = Just ("<@Eq_"<>t<>"@>", 
-                                        GivenFun (GivenInst ("Eq "<>t))
+                                        GivenFun (GivenInst (eqInst t))
                                         $ TCons "Eq" [e])
         toEqInst _ = Nothing
         eqLaws = Map.singleton "<@Eq_[a]@>"
-                    $ GivenFun GivenLaw
+                    $ GivenFun (GivenLaw "Eq_[a]")
                     $ TFun (TCons "Eq" [TVar "a"]) 
                     $ TCons "Eq" [TCons "[]" [TVar "a"]]
         eqDef = Map.singleton "(==)" $ 
@@ -108,6 +108,25 @@ sigGivens sigs = eqDef
         getArb t | "Integer"  <- T.unpack t =  toDyn (arbitrary :: Gen Integer)
         getArb t | "Double"  <- T.unpack t =  toDyn (arbitrary :: Gen Double)
         getArb x = error $ "unknown type '" ++ (T.unpack x) ++ "'"
+        eqInst t | "A"  <- T.unpack t =  toDyn ((==) :: A -> A -> Bool)
+        eqInst t | "B"  <- T.unpack t =  toDyn ((==) :: B -> B -> Bool)
+        eqInst t | "C"  <- T.unpack t =  toDyn ((==) :: C -> C -> Bool)
+        eqInst t | "D"  <- T.unpack t =  toDyn ((==) :: D -> D -> Bool)
+        eqInst t | "Acc"  <- T.unpack t =  toDyn ((==) :: Acc -> Acc -> Bool)
+        eqInst t | "Int"  <- T.unpack t =  toDyn ((==) :: Int -> Int -> Bool)
+        eqInst t | "Char"  <- T.unpack t =  toDyn ((==) :: Char -> Char -> Bool)
+        eqInst t | "Integer"  <- T.unpack t =  toDyn ((==) :: Integer -> Integer -> Bool)
+        eqInst t | "Double"  <- T.unpack t =  toDyn ((==) :: Double -> Double -> Bool)
+        eqInst t | "[A]"  <- T.unpack t =  toDyn ((==) :: [A] -> [A] -> Bool)
+        eqInst t | "[B]"  <- T.unpack t =  toDyn ((==) :: [B] -> [B] -> Bool)
+        eqInst t | "[C]"  <- T.unpack t =  toDyn ((==) :: [C] -> [C] -> Bool)
+        eqInst t | "[D]"  <- T.unpack t =  toDyn ((==) :: [D] -> [D] -> Bool)
+        eqInst t | "[Acc]"  <- T.unpack t =  toDyn ((==) :: [Acc] -> [Acc] -> Bool)
+        eqInst t | "[Int]"  <- T.unpack t =  toDyn ((==) :: [Int] -> [Int] -> Bool)
+        eqInst t | "[Char]"  <- T.unpack t =  toDyn ((==) :: [Char] -> [Char] -> Bool)
+        eqInst t | "[Integer]"  <- T.unpack t =  toDyn ((==) :: [Integer] -> [Integer] -> Bool)
+        eqInst t | "[Double]"  <- T.unpack t =  toDyn ((==) :: [Double] -> [Double] -> Bool)
+        eqInst x = error $ "unknown type '" ++ (T.unpack x) ++ "'"
 
 
 
@@ -125,10 +144,11 @@ arith p = Map.fromList $
                  , ("((+) @("<> trtext <> "))", toDyn plus)
                  , ("((*) @("<> trtext <> "))", toDyn mul)
                  , ("((-) @("<> trtext <> "))", toDyn minus)
-                 , ("(sign @("<> trtext <> "))", toDyn sign)
-                 , ("(abs @("<> trtext <> "))", toDyn ab)
-                 , ("(negate @("<> trtext <> "))", toDyn neg)
-                 , ("(fromInteger @("<> trtext <> "))", toDyn fromI) ]
+                 -- , ("(sign @("<> trtext <> "))", toDyn sign)
+                 -- , ("(abs @("<> trtext <> "))", toDyn ab)
+                 -- , ("(negate @("<> trtext <> "))", toDyn neg)
+                 -- , ("(fromInteger @("<> trtext <> "))", toDyn fromI)
+                 ]
                  )
   where tr = typeRep p
         trtext = T.pack $ show tr
@@ -182,9 +202,9 @@ data Func = SigFunc { sf_func :: Dynamic
           | GivenFun {given_info :: GivenInfo, giv_rep :: TypeSkeleton}
           deriving (Show)
 
-data GivenInfo =  GivenLaw 
+data GivenInfo =  GivenLaw Text
                 | GivenDef Text
-                | GivenInst Text
+                | GivenInst Dynamic
                 | GivenVar Text Dynamic
                 deriving (Show)
 
@@ -238,23 +258,32 @@ fde :: Typeable a => Dynamic -> a
 fde = flip fromDyn (error "type mismatch")
 
 
--- TODO:
--- termToProp :: Sig -> Term -> Property
--- termToProp sig (Term "app" [fun,arg]) =
---     do Just fun <- termToProp sig fun
---        case termToFun sig arg of 
---          Just arg_res -> dynApply fun arg_res
---          Nothing -> return fun
--- termToProp sig (Term a []) =
---    case sig Map.!? a of 
---     Just (GivenFun {given_info = GivenVar _ d}) -> return $ fde d
---     Just (GivenFun {given_info = GivenDef "(==)"}) -> return $ (\a -> \b -> (==) a b)
---     Just x -> error $ show x
---     Nothing -> error "not found!"
--- termToProp :: Testable prop =>
---               Sig -> Term -> Gen a
--- termToProp sig (Term "app" [arg,ret]) =
---     let argGen = termToGen sig arg
---         retGen = \a -> termToGen 
+flipTerm :: Term -> Term
+flipTerm (Term "app" ((Term s sargs):rest)) = flipTerm (Term s $ map flipTerm (sargs ++ rest))
+flipTerm t = t
 
-    
+eqLi :: (a -> a -> Bool) -> [a] -> [a] -> Bool
+eqLi f [] [] = True
+eqLi f (a:as) (b:bs) = if f a b then eqLi f as bs else False
+eqLi _ _ _ = False
+
+-- Note: should be flipped 
+termToGen :: Typeable a => Sig -> Term -> Gen a
+termToGen sig (Term "(==)" [eq_i, a_g, b_g]) = trace "<==========here=======>" $
+    do eq <- termToGen sig $ traceShowId eq_i
+       a <- termToGen sig $ traceShowId a_g
+       b <- termToGen sig $ traceShowId b_g
+       return $ fde $ fromJust $ dynApply (fromJust $ dynApply eq a) b
+termToGen sig (Term (Symbol sym) args) = trace "<==========weird=======>" $
+  case sig Map.!? sym of 
+   Just (GivenFun {given_info = GivenVar _ d}) -> return $ fde d
+   Just (GivenFun {given_info = GivenDef "(==)"}) -> error "Givendef should not be"
+   -- Just (GivenFun {given_info = GivenLaw "Eq_[a]" }) | [Term (Symbol eqs) []] <- args,
+   --                                                     Just (GivenFun {..}) <- sig Map.!? eqs,
+   --                                                     GivenInst inst <- given_info ->
+   --                                                     return $ eqLi (fde inst)
+   Just (GivenFun {given_info = GivenInst inst}) -> return $ fde inst
+   Just sf@(SigFunc {}) -> return $ fde $ sfFunc sf
+   Just gf@(GenFunc {}) -> return $ fde $ sfFunc gf
+   Just x -> error $ show x
+   Nothing -> error "not found!"

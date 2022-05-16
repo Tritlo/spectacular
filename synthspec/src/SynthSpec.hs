@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, TypeApplications #-}
 module SynthSpec (
     module SynthSpec.Types,
     module Data.Proxy,
@@ -20,6 +20,7 @@ import Application.TermSearch.TermSearch hiding (allConstructors, generalize)
 import Data.ECTA
 import Data.ECTA.Term
 import Data.List
+import qualified Test.QuickCheck as QC
 
 synthSpec :: [Sig] -> IO ()
 synthSpec sigs = 
@@ -67,3 +68,13 @@ synthSpec sigs =
        putStrLn "------------------------------------------------------------"
        mapM_ (print . pp) even_more_terms
        mapM_ (print) even_more_terms
+       putStrLn "flipped"
+       putStrLn "------------------------------------------------------------"
+       mapM_ (print . flipTerm) even_more_terms
+       putStrLn "gen"
+       putStrLn "------------------------------------------------------------"
+       r <- mapM (QC.generate @Bool . termToGen complSig . flipTerm) even_more_terms
+       mapM_ print r
+       putStrLn "------------------------------------------------------------"
+       --mapM_ (print) even_more_terms
+       -- mapM_ (QC.generate @Bool. termToProp complSig) even_more_terms
