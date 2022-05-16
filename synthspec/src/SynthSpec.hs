@@ -23,31 +23,36 @@ import Data.ECTA.Term
 synthSpec :: [Sig] -> IO ()
 synthSpec sigs = 
     do print sig
-       print $ Dyn.dynTypeRep <$> sig
-       let givens = tyGivens
-           skels = (typeRepToTypeSkeleton . Dyn.dynTypeRep) <$> sig
+       print $ (Dyn.dynTypeRep . dropInfo) <$> sig
+       let givens = sigGivens sig
+           skels = sfTypeRep <$> sig
+           reqSkels = sfTypeRep <$> Map.filter sf_required sig
            scope_comps = (Map.assocs skels) ++ givens
            addSyms st tt = map (Bi.bimap (Symbol . st) (tt . typeToFta))
            ngnodes = addSyms id id
            gnodes = addSyms id (generalize scope_comps)
-           argNodes = ngnodes scope_comps
+           -- argnodes are the ones we require at least 1 of.
+           argNodes = ngnodes $ (Map.assocs reqSkels) ++ givens
            anyArg = Node $ map (\(s,t) -> Edge s [t]) $ 
-                        (gnodes givens) ++ argNodes
-           scopeNode = anyArg
+                        (gnodes givens) ++ ngnodes (Map.assocs skels)
            groups = Map.fromList $ map (\(t,_) -> (t,[t])) scope_comps
-       let boolTy = typeRepToTypeSkeleton $ Dyn.dynTypeRep $ Dyn.toDyn True
+           boolTy = typeRepToTypeSkeleton $ Dyn.dynTypeRep $ Dyn.toDyn True
            resNode = typeToFta boolTy
+       putStrLn "givens"
+       putStrLn "------------------------------------------------------------"
+       mapM_ print givens
+       putStrLn "skels"
+       putStrLn "------------------------------------------------------------"
        print skels
+       putStrLn "req"
+       putStrLn "------------------------------------------------------------"
+       print reqSkels
        print boolTy
-       let res = getAllTerms $ refold $ reduceFully $ filterType scopeNode resNode
-           ppterms = concatMap (prettyMatchRep skels groups . prettyTerm) res
+       let res = getAllTerms $ refold $ reduceFully $ filterType anyArg resNode
            even_more_terms =
              map (pp . prettyTerm) $
                concatMap (getAllTerms . refold . reduceFully . flip filterType resNode )
-                         (rtkUpToKAtLeast1 argNodes scope_comps anyArg True 7)
-       putStrLn "ppterms"
-       putStrLn "------------------------------------------------------------"
-       mapM_ print ppterms
+                         (rtkUpToKAtLeast1 argNodes scope_comps anyArg True 5)
        putStrLn "even_more_terms"
        putStrLn "------------------------------------------------------------"
        mapM_ print even_more_terms
