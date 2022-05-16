@@ -31,7 +31,7 @@ sig = mconcat
     ]
 
 sigList :: Sig -> [(Text, TypeSkeleton)]
-sigList sig = Map.toList $ Map.map (typeRepToTypeSkeleton . dynTypeRep . dropInfo) sig
+sigList sig = Map.toList $ Map.map (typeRepToTypeSkeleton . dynTypeRep . sfFunc) sig
 
 tk :: Node -> Int -> [Node]
 tk _ 0 = []

@@ -21,7 +21,8 @@ common deps
                  text,
                  containers,
                  compact-coupled-terms,
-                 cct-plugin
+                 cct-plugin,
+                 QuickCheck
 
 
 library
