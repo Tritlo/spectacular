@@ -300,7 +300,9 @@ traceShowIdLbl _ a = a
 
 -- Note: should be flipped 
 termToGen :: Sig -> VarVals -> Term -> Gen Dynamic
-termToGen sig vv (Term "(==)" [eq_i, a_g, b_g]) =
+termToGen sig vv (Term "(==)" [eq_i, a_g, b_g])
+    | a_g == b_g = return (toDyn True) -- short-circuit the trivial case
+    | otherwise =
     do eq <- fmap (traceShowIdLbl "eq:") $ 
                 termToGen sig Map.empty (traceShowIdLbl "eq_i:" eq_i)
        vva <- traceShowIdLbl "vva:" <$> getVars sig a_g

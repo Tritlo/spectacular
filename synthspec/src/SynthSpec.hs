@@ -79,11 +79,16 @@ synthSpec sigs =
        let qc_args = QC.stdArgs { QC.chatty = False,
                                   QC.maxShrinks = 0,
                                   QC.maxSuccess = 1000}
-       let go :: [Term] -> IO ()
+       let isId :: Term -> Bool
+           isId (Term "(==)" [_, a,b]) = a == b
+           isId _ = False
+
+           go :: [Term] -> IO ()
            go = go' Set.empty [1..] 
            go' _ _ [] = return ()
            go' seen nums@(n:ns) (term:terms)
-             | term `Set.member` seen = go' seen nums terms
+             | isId (flipTerm term) = skip
+             | term `Set.member` seen = skip
              | otherwise = do
                -- putStrLn $ T.unpack ("Testing: " <> pp term)
                let termGen = termToGen complSig Map.empty $ flipTerm term
@@ -92,6 +97,7 @@ synthSpec sigs =
                else do putStrLn ((show n <> ". ") <> T.unpack (pp term))
                        continue ns terms
               where continue = go' (term `Set.insert` seen)
+                    skip = go' seen nums terms
        go even_more_terms
                    
        --mapM_ (print) even_more_terms
