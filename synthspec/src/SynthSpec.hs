@@ -95,8 +95,10 @@ synthSpec sigs =
              | term `Set.member` seen = skip
              | otherwise = do
                -- putStrLn $ T.unpack ("Testing: " <> pp term)
-               let termGen = termToGen complSig Map.empty $ flipTerm term
-               holds <- QC.isSuccess <$> QC.quickCheckWithResult qc_args (dynProp termGen)
+               let flipped = flipTerm term
+                   termGen = termToGen complSig Map.empty flipped
+               holds <- QC.isSuccess <$>
+                          QC.quickCheckWithResult qc_args (dynProp termGen)
                if not holds then continue nums terms
                else do putStrLn ((show n <> ". ") <> T.unpack (pp term))
                        continue ns terms
