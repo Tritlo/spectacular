@@ -63,10 +63,14 @@ synthSpec sigs =
        -- print boolTy
        let res = getAllTerms $ refold $ reduceFully $ filterType anyArg resNode
            -- TODO: make it generate the terms in a more "sane" order.
+           -- even_more_terms =
+           --   map prettyTerm $
+           --     concatMap (getAllTerms . refold . reduceFully . flip filterType resNode )
+           --               (rtkUpToKAtLeast1 argNodes scope_comps anyArg True 8)
            even_more_terms =
              map prettyTerm $
                concatMap (getAllTerms . refold . reduceFully . flip filterType resNode )
-                         (rtkUpToKAtLeast1 argNodes scope_comps anyArg True 6)
+                         (rtkUpToK [] scope_comps anyArg True 6)
        -- putStrLn "even_more_terms"
        -- putStrLn "------------------------------------------------------------"
        -- mapM_ (print . pp) even_more_terms

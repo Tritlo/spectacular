@@ -160,11 +160,23 @@ rtkOfSize args comps anyArg includeApp k =
     union $ concatMap (\a -> rtk a comps anyArg includeApp k) $ permutations args
 
 rtkUpToK :: [Argument] -> Comps -> Node -> Bool -> Int -> [Node]
-rtkUpToK args comps anyArg includeApp k =  map (rtkOfSize args comps anyArg includeApp) [1..k]
+rtkUpToK args comps anyArg includeApp k = 
+    map (rtkOfSize args comps anyArg includeApp) [1..k]
 
+rtkAtLeast1 :: [Argument] -> Comps -> Node -> Bool -> Int -> [Node]
+rtkAtLeast1 args comps anyArg includeApp k = 
+    map (\as -> rtkOfSize as comps anyArg includeApp k) $ map (:[]) args 
+
+-- rtkUpToKAtLeast1 :: [Argument] -> Comps -> Node -> Bool -> Int -> [Node]
+-- rtkUpToKAtLeast1 args comps anyArg includeApp k =
+--   concatMap (\as -> rtkUpToK as comps anyArg includeApp k) $ map (:[]) args
+
+-- Slower for some reason? Probably wrong also because there's a lot more 
+-- repition, since we don't exclude the args etc etc.
+-- TODO: improve by e.g. removing the ones already used from comps etc.
 rtkUpToKAtLeast1 :: [Argument] -> Comps -> Node -> Bool -> Int -> [Node]
-rtkUpToKAtLeast1 args comps anyArg includeApp k =
-  concatMap (\as -> rtkUpToK as comps anyArg includeApp k) $ map (:[]) args
+rtkUpToKAtLeast1 args comps anyArg includeApp k = 
+    concatMap (rtkAtLeast1 args comps anyArg includeApp) [1..k]
 
 
 mapp :: Node -> Node -> Node
