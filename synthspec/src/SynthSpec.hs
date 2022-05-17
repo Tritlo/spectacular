@@ -35,7 +35,7 @@ synthSpec sigs =
        -- mapM_ print $ Map.assocs sig
        -- putStrLn "given sig"
        -- putStrLn "------------------------------------------------------------"
-       -- mapM_ print $ Map.assocs givenSig
+       mapM_ print $ Map.assocs givenSig
        -- print $ (Dyn.dynTypeRep . sfFunc) <$> sig
        let givens = Map.assocs $ sfTypeRep <$> givenSig
            skels = sfTypeRep <$> sig
@@ -62,10 +62,11 @@ synthSpec sigs =
        -- print reqSkels
        -- print boolTy
        let res = getAllTerms $ refold $ reduceFully $ filterType anyArg resNode
+           -- TODO: make it generate the terms in a more "sane" order.
            even_more_terms =
              map prettyTerm $
                concatMap (getAllTerms . refold . reduceFully . flip filterType resNode )
-                         (rtkUpToKAtLeast1 argNodes scope_comps anyArg True 9)
+                         (rtkUpToKAtLeast1 argNodes scope_comps anyArg True 6)
        -- putStrLn "even_more_terms"
        -- putStrLn "------------------------------------------------------------"
        -- mapM_ (print . pp) even_more_terms
@@ -84,6 +85,7 @@ synthSpec sigs =
            go' seen nums@(n:ns) (term:terms)
              | term `Set.member` seen = go' seen nums terms
              | otherwise = do
+               -- putStrLn $ T.unpack ("Testing: " <> pp term)
                let termGen = termToGen complSig Map.empty $ flipTerm term
                holds <- QC.isSuccess <$> QC.quickCheckWithResult qc_args (dynProp termGen)
                if not holds then continue nums terms

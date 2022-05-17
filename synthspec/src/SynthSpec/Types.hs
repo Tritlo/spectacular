@@ -65,19 +65,25 @@ sigGivens sigs = eqDef
   where trs = map sfTypeRep $ Map.elems sigs
         -- we specialcase lists
         --cons t@(TCons "[]" r) = Map.unionsWith (+) $ map cons r
+        cons t@(TCons "[]" [TCons a []]) = (Map.singleton t (1 :: Int))
         cons t@(TCons _ r) = Map.unionsWith (+) $
                                 (Map.singleton t (1 :: Int)):(map cons r)
         cons (TFun arg ret) = Map.unionWith (+) (cons arg) (cons ret)
         cons (TVar _) = Map.empty
         allCons = Map.unionsWith max $ map cons trs
+        toEqInst e@(TCons "[]" [TCons t []])
+                        = Just ("<@Eq_["<>t<>"]@>",
+                                GivenFun (GivenInst (eqInst ("["<>t<>"]")))
+                                $ TCons "Eq" [e])
         toEqInst e@(TCons t []) = Just ("<@Eq_"<>t<>"@>", 
                                         GivenFun (GivenInst (eqInst t))
                                         $ TCons "Eq" [e])
         toEqInst _ = Nothing
-        eqLaws = Map.singleton "<@Eq_[a]@>"
-                    $ GivenFun (GivenLaw "Eq_[a]")
-                    $ TFun (TCons "Eq" [TVar "a"]) 
-                    $ TCons "Eq" [TCons "[]" [TVar "a"]]
+        -- TODO:
+        -- eqLaws = Map.singleton "<@Eq_[a]@>"
+        --             $ GivenFun (GivenLaw "Eq_[a]")
+        --             $ TFun (TCons "Eq" [TVar "a"])
+        --             $ TCons "Eq" [TCons "[]" [TVar "a"]]
         eqDef = Map.singleton "(==)" $ 
                     GivenFun (GivenDef "(==)")
                              $ TFun (TCons "Eq" [TVar "a"])
@@ -208,10 +214,10 @@ data Func = SigFunc { sf_func :: Dynamic
           | GivenFun {given_info :: GivenInfo, giv_rep :: TypeSkeleton}
           deriving (Show)
 
-data GivenInfo =  GivenLaw Text
-                | GivenDef Text
+data GivenInfo =  GivenDef Text
                 | GivenInst Dynamic
                 | GivenVar Text DynGen
+                -- | GivenLaw Text
                 deriving (Show)
 
 data DynGen where
