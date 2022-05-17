@@ -1,5 +1,5 @@
 {-# LANGUAGE TypeSynonymInstances, FlexibleInstances, OverloadedStrings,
-             ScopedTypeVariables, TypeApplications, RecordWildCards #-}
+             ScopedTypeVariables, TypeApplications, RecordWildCards, GADTs #-}
 
 module SynthSpec.Types where
 import Data.Dynamic
@@ -8,8 +8,10 @@ import Data.Text (Text)
 import qualified Data.Map as Map
 import GHC.Base (Any)
 import Application.TermSearch.Type (TypeSkeleton(..))
+import GHC.Stack (HasCallStack)
 
 import Data.Typeable
+import Type.Reflection (someTypeRep)
 import Data.Char (toLower)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -23,9 +25,12 @@ import Data.ECTA (union)
 import Data.ECTA.Paths (getPath, mkEqConstraints, path, Path)
 import Data.Proxy
 import Data.Maybe (mapMaybe, fromJust)
-import Debug.Trace (traceShowId, trace)
+import Debug.Trace (traceShowId, trace, traceShowM)
 
 import Test.QuickCheck (Arbitrary(..), Property(..), Testable(..), Gen(..))
+import qualified Test.QuickCheck as QC
+import System.IO.Unsafe
+import Unsafe.Coerce
 import Test.QuickCheck.Property
 
 -- Types supported by ECTA
@@ -88,25 +93,25 @@ sigGivens sigs = eqDef
               $ take n 
               $ (map (\n-> "x_" <> a <> "_" <> (T.pack (show n)))) [0..]
         consNames _ = []
-        getArbLi t | "A"  <- T.unpack t =  toDyn (arbitrary :: Gen [A])
-        getArbLi t | "B"  <- T.unpack t =  toDyn (arbitrary :: Gen [B])
-        getArbLi t | "C"  <- T.unpack t =  toDyn (arbitrary :: Gen [C])
-        getArbLi t | "D"  <- T.unpack t =  toDyn (arbitrary :: Gen [D])
-        getArbLi t | "Acc"  <- T.unpack t =  toDyn (arbitrary :: Gen [Acc])
-        getArbLi t | "Int"  <- T.unpack t =  toDyn (arbitrary :: Gen [Int])
-        getArbLi t | "Char"  <- T.unpack t =  toDyn (arbitrary :: Gen [Char])
-        getArbLi t | "Integer"  <- T.unpack t =  toDyn (arbitrary :: Gen [Integer])
-        getArbLi t | "Double"  <- T.unpack t =  toDyn (arbitrary :: Gen [Double])
+        getArbLi t | "A"  <- T.unpack t =  DynGen (arbitrary :: Gen [A])
+        getArbLi t | "B"  <- T.unpack t =  DynGen (arbitrary :: Gen [B])
+        getArbLi t | "C"  <- T.unpack t =  DynGen (arbitrary :: Gen [C])
+        getArbLi t | "D"  <- T.unpack t =  DynGen (arbitrary :: Gen [D])
+        getArbLi t | "Acc"  <- T.unpack t =  DynGen (arbitrary :: Gen [Acc])
+        getArbLi t | "Int"  <- T.unpack t =  DynGen (arbitrary :: Gen [Int])
+        getArbLi t | "Char"  <- T.unpack t =  DynGen (arbitrary :: Gen [Char])
+        getArbLi t | "Integer"  <- T.unpack t =  DynGen (arbitrary :: Gen [Integer])
+        getArbLi t | "Double"  <- T.unpack t =  DynGen (arbitrary :: Gen [Double])
         getArbLi x = error $ "unknown type '" ++ (T.unpack x) ++ "'"
-        getArb t | "A"  <- T.unpack t =  toDyn (arbitrary :: Gen A)
-        getArb t | "B"  <- T.unpack t =  toDyn (arbitrary :: Gen B)
-        getArb t | "C"  <- T.unpack t =  toDyn (arbitrary :: Gen C)
-        getArb t | "D"  <- T.unpack t =  toDyn (arbitrary :: Gen D)
-        getArb t | "Acc"  <- T.unpack t =  toDyn (arbitrary :: Gen Acc)
-        getArb t | "Int"  <- T.unpack t =  toDyn (arbitrary :: Gen Int)
-        getArb t | "Char"  <- T.unpack t =  toDyn (arbitrary :: Gen Char)
-        getArb t | "Integer"  <- T.unpack t =  toDyn (arbitrary :: Gen Integer)
-        getArb t | "Double"  <- T.unpack t =  toDyn (arbitrary :: Gen Double)
+        getArb t | "A"  <- T.unpack t =  DynGen (arbitrary :: Gen A)
+        getArb t | "B"  <- T.unpack t =  DynGen (arbitrary :: Gen B)
+        getArb t | "C"  <- T.unpack t =  DynGen (arbitrary :: Gen C)
+        getArb t | "D"  <- T.unpack t =  DynGen (arbitrary :: Gen D)
+        getArb t | "Acc"  <- T.unpack t =  DynGen (arbitrary :: Gen Acc)
+        getArb t | "Int"  <- T.unpack t =  DynGen (arbitrary :: Gen Int)
+        getArb t | "Char"  <- T.unpack t =  DynGen (arbitrary :: Gen Char)
+        getArb t | "Integer"  <- T.unpack t =  DynGen (arbitrary :: Gen Integer)
+        getArb t | "Double"  <- T.unpack t =  DynGen (arbitrary :: Gen Double)
         getArb x = error $ "unknown type '" ++ (T.unpack x) ++ "'"
         eqInst t | "A"  <- T.unpack t =  toDyn ((==) :: A -> A -> Bool)
         eqInst t | "B"  <- T.unpack t =  toDyn ((==) :: B -> B -> Bool)
@@ -141,9 +146,10 @@ arith p = Map.fromList $
                  [ ("0", toDyn zero)
                  , ("1", toDyn $ (fromInteger 1) `asProxyTypeOf` p)
                  --, ("((==) @("<> trtext <> "))", toDyn eq)
-                 , ("((+) @("<> trtext <> "))", toDyn plus)
-                 , ("((*) @("<> trtext <> "))", toDyn mul)
-                 , ("((-) @("<> trtext <> "))", toDyn minus)
+                 -- TODO: prune?
+                 -- , ("((+) @("<> trtext <> "))", toDyn plus)
+                 -- , ("((*) @("<> trtext <> "))", toDyn mul)
+                 -- , ("((-) @("<> trtext <> "))", toDyn minus)
                  -- , ("(sign @("<> trtext <> "))", toDyn sign)
                  -- , ("(abs @("<> trtext <> "))", toDyn ab)
                  -- , ("(negate @("<> trtext <> "))", toDyn neg)
@@ -205,8 +211,14 @@ data Func = SigFunc { sf_func :: Dynamic
 data GivenInfo =  GivenLaw Text
                 | GivenDef Text
                 | GivenInst Dynamic
-                | GivenVar Text Dynamic
+                | GivenVar Text DynGen
                 deriving (Show)
+
+data DynGen where
+   DynGen :: forall a. Typeable a => Gen a -> DynGen
+
+instance Show DynGen where
+  show (DynGen dg) = show (toDyn dg)
 
 -- instance Show Func where
 --   show (SigFunc {..}) = show sf_func
@@ -254,10 +266,6 @@ extra name fun = Map.singleton name $ (extraFunc $ toDyn fun)
 skeletonToTypeRep :: TypeSkeleton -> Maybe TypeRep
 skeletonToTypeRep _ = Nothing
 
-fde :: Typeable a => Dynamic -> a
-fde = flip fromDyn (error "type mismatch")
-
-
 flipTerm :: Term -> Term
 flipTerm (Term "app" ((Term s sargs):rest)) = flipTerm (Term s $ map flipTerm (sargs ++ rest))
 flipTerm t = t
@@ -267,23 +275,62 @@ eqLi f [] [] = True
 eqLi f (a:as) (b:bs) = if f a b then eqLi f as bs else False
 eqLi _ _ _ = False
 
+
+
+type VarVals = Map Text Dynamic
+
+getVars :: Sig -> Term -> Gen VarVals
+getVars sig (Term (Symbol sym) args) = do
+    vv <- Map.unions <$> (mapM (getVars sig) args)
+    case sig Map.!? sym of
+        Just (GivenFun {given_info = GivenVar _ (DynGen g) }) -> do
+            v <- toDyn <$> g
+            return (vv <> (Map.singleton sym v))
+        _ -> return vv 
+
+traceShowIdLbl :: Show a => String -> a -> a
+-- traceShowIdLbl lbl a = (trace (lbl ++ show a) a)
+traceShowIdLbl _ a = a
+
 -- Note: should be flipped 
-termToGen :: Typeable a => Sig -> Term -> Gen a
-termToGen sig (Term "(==)" [eq_i, a_g, b_g]) = trace "<==========here=======>" $
-    do eq <- termToGen sig $ traceShowId eq_i
-       a <- termToGen sig $ traceShowId a_g
-       b <- termToGen sig $ traceShowId b_g
-       return $ fde $ fromJust $ dynApply (fromJust $ dynApply eq a) b
-termToGen sig (Term (Symbol sym) args) = trace "<==========weird=======>" $
+termToGen :: Sig -> VarVals -> Term -> Gen Dynamic
+termToGen sig vv (Term "(==)" [eq_i, a_g, b_g]) =
+    do eq <- fmap (traceShowIdLbl "eq:") $ 
+                termToGen sig Map.empty (traceShowIdLbl "eq_i:" eq_i)
+       vva <- traceShowIdLbl "vva:" <$> getVars sig a_g
+       vvb <- traceShowIdLbl "vva:" <$> getVars sig b_g
+       let vv = vva <> vvb
+       a  <- fmap (traceShowIdLbl "a:")  $ termToGen sig vv (traceShowIdLbl "a_g:" a_g)
+       b  <- fmap (traceShowIdLbl "b:")  $ termToGen sig vv (traceShowIdLbl "b_g:" b_g)
+       return $ fromJust $ dynApply (fromJust $ dynApply eq a) b
+termToGen sig vv (Term (Symbol sym) []) = 
   case sig Map.!? sym of 
-   Just (GivenFun {given_info = GivenVar _ d}) -> return $ fde d
+   Just (GivenFun {given_info = GivenVar _ _}) ->
+        case vv Map.!? sym of
+          Just var_val -> return var_val
+          _ -> error "Variable not found!!"
    Just (GivenFun {given_info = GivenDef "(==)"}) -> error "Givendef should not be"
-   -- Just (GivenFun {given_info = GivenLaw "Eq_[a]" }) | [Term (Symbol eqs) []] <- args,
-   --                                                     Just (GivenFun {..}) <- sig Map.!? eqs,
-   --                                                     GivenInst inst <- given_info ->
-   --                                                     return $ eqLi (fde inst)
-   Just (GivenFun {given_info = GivenInst inst}) -> return $ fde inst
-   Just sf@(SigFunc {}) -> return $ fde $ sfFunc sf
-   Just gf@(GenFunc {}) -> return $ fde $ sfFunc gf
+   Just (GivenFun {given_info = GivenInst inst}) -> return inst
+   Just sf@(SigFunc {}) -> return $ sfFunc sf
+   Just gf@(GenFunc {}) -> return $ sfFunc gf
    Just x -> error $ show x
    Nothing -> error "not found!"
+termToGen sig vv (Term (Symbol sym) args) =
+ do  symGen <- fmap (traceShowIdLbl "symGen: ") $ termToGen sig vv (Term (Symbol sym) [])
+     argGens <- mapM (termToGen sig vv) args
+     return $ foldl (\f v -> fromJust (dynApply f v)) symGen $
+                traceShowIdLbl "argGens: " argGens
+   
+
+dynProp :: Gen Dynamic -> Property
+dynProp gen = QC.forAll gen (flip fromDyn False)
+
+-- | castDyn casts a Dynamic to any typeable value, and fails with a descriptive
+-- error if the types dont match. Automatically inserted for casting Dynamic
+-- values back to static values.
+castDyn :: forall a . (Typeable a, HasCallStack) => Dynamic -> a
+castDyn arg = fromDyn arg err
+  where err = error ("Couldn't match expected type '" ++ target
+                     ++ "' with actual dynamic type '" ++ actual  ++ "'")
+        target = show (someTypeRep (Proxy :: Proxy a))
+        actual = show (dynTypeRep arg)
