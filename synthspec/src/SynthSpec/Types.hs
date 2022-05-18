@@ -79,6 +79,10 @@ sigGivens sigs = eqDef
                                         GivenFun (GivenInst (eqInst t))
                                         $ TCons "Eq" [e])
         toEqInst _ = Nothing
+        -- Needs template haskell for user-given instances.
+        -- in core f: (Eq a => Eq [a])
+        -- (==) (f (Eq a)) :: Eq [a]
+        -- (==) @[A]
         -- TODO:
         -- eqLaws = Map.singleton "<@Eq_[a]@>"
         --             $ GivenFun (GivenLaw "Eq_[a]")
@@ -99,44 +103,47 @@ sigGivens sigs = eqDef
               $ take n 
               $ (map (\n-> "x_" <> a <> "_" <> (T.pack (show n)))) [0..]
         consNames _ = []
-        getArbLi t | "A"  <- T.unpack t =  DynGen (arbitrary :: Gen [A])
-        getArbLi t | "B"  <- T.unpack t =  DynGen (arbitrary :: Gen [B])
-        getArbLi t | "C"  <- T.unpack t =  DynGen (arbitrary :: Gen [C])
-        getArbLi t | "D"  <- T.unpack t =  DynGen (arbitrary :: Gen [D])
-        getArbLi t | "Acc"  <- T.unpack t =  DynGen (arbitrary :: Gen [Acc])
-        getArbLi t | "Int"  <- T.unpack t =  DynGen (arbitrary :: Gen [Int])
-        getArbLi t | "Char"  <- T.unpack t =  DynGen (arbitrary :: Gen [Char])
-        getArbLi t | "Integer"  <- T.unpack t =  DynGen (arbitrary :: Gen [Integer])
-        getArbLi t | "Double"  <- T.unpack t =  DynGen (arbitrary :: Gen [Double])
+        getArbLi :: Text -> DynGen
+        getArbLi "A"        =  DynGen (arbitrary :: Gen [A])
+        getArbLi "B"        =  DynGen (arbitrary :: Gen [B])
+        getArbLi "C"        =  DynGen (arbitrary :: Gen [C])
+        getArbLi "D"        =  DynGen (arbitrary :: Gen [D])
+        getArbLi "Acc"      =  DynGen (arbitrary :: Gen [Acc])
+        getArbLi "Int"      =  DynGen (arbitrary :: Gen [Int])
+        getArbLi "Char"     =  DynGen (arbitrary :: Gen [Char])
+        getArbLi "Integer"  =  DynGen (arbitrary :: Gen [Integer])
+        getArbLi "Double"   =  DynGen (arbitrary :: Gen [Double])
         getArbLi x = error $ "unknown type '" ++ (T.unpack x) ++ "'"
-        getArb t | "A"  <- T.unpack t =  DynGen (arbitrary :: Gen A)
-        getArb t | "B"  <- T.unpack t =  DynGen (arbitrary :: Gen B)
-        getArb t | "C"  <- T.unpack t =  DynGen (arbitrary :: Gen C)
-        getArb t | "D"  <- T.unpack t =  DynGen (arbitrary :: Gen D)
-        getArb t | "Acc"  <- T.unpack t =  DynGen (arbitrary :: Gen Acc)
-        getArb t | "Int"  <- T.unpack t =  DynGen (arbitrary :: Gen Int)
-        getArb t | "Char"  <- T.unpack t =  DynGen (arbitrary :: Gen Char)
-        getArb t | "Integer"  <- T.unpack t =  DynGen (arbitrary :: Gen Integer)
-        getArb t | "Double"  <- T.unpack t =  DynGen (arbitrary :: Gen Double)
+        getArb :: Text -> DynGen
+        getArb "A"        =  DynGen (arbitrary :: Gen A)
+        getArb "B"        =  DynGen (arbitrary :: Gen B)
+        getArb "C"        =  DynGen (arbitrary :: Gen C)
+        getArb "D"        =  DynGen (arbitrary :: Gen D)
+        getArb "Acc"      =  DynGen (arbitrary :: Gen Acc)
+        getArb "Int"      =  DynGen (arbitrary :: Gen Int)
+        getArb "Char"     =  DynGen (arbitrary :: Gen Char)
+        getArb "Integer"  =  DynGen (arbitrary :: Gen Integer)
+        getArb "Double"   =  DynGen (arbitrary :: Gen Double)
         getArb x = error $ "unknown type '" ++ (T.unpack x) ++ "'"
-        eqInst t | "A"  <- T.unpack t =  toDyn ((==) :: A -> A -> Bool)
-        eqInst t | "B"  <- T.unpack t =  toDyn ((==) :: B -> B -> Bool)
-        eqInst t | "C"  <- T.unpack t =  toDyn ((==) :: C -> C -> Bool)
-        eqInst t | "D"  <- T.unpack t =  toDyn ((==) :: D -> D -> Bool)
-        eqInst t | "Acc"  <- T.unpack t =  toDyn ((==) :: Acc -> Acc -> Bool)
-        eqInst t | "Int"  <- T.unpack t =  toDyn ((==) :: Int -> Int -> Bool)
-        eqInst t | "Char"  <- T.unpack t =  toDyn ((==) :: Char -> Char -> Bool)
-        eqInst t | "Integer"  <- T.unpack t =  toDyn ((==) :: Integer -> Integer -> Bool)
-        eqInst t | "Double"  <- T.unpack t =  toDyn ((==) :: Double -> Double -> Bool)
-        eqInst t | "[A]"  <- T.unpack t =  toDyn ((==) :: [A] -> [A] -> Bool)
-        eqInst t | "[B]"  <- T.unpack t =  toDyn ((==) :: [B] -> [B] -> Bool)
-        eqInst t | "[C]"  <- T.unpack t =  toDyn ((==) :: [C] -> [C] -> Bool)
-        eqInst t | "[D]"  <- T.unpack t =  toDyn ((==) :: [D] -> [D] -> Bool)
-        eqInst t | "[Acc]"  <- T.unpack t =  toDyn ((==) :: [Acc] -> [Acc] -> Bool)
-        eqInst t | "[Int]"  <- T.unpack t =  toDyn ((==) :: [Int] -> [Int] -> Bool)
-        eqInst t | "[Char]"  <- T.unpack t =  toDyn ((==) :: [Char] -> [Char] -> Bool)
-        eqInst t | "[Integer]"  <- T.unpack t =  toDyn ((==) :: [Integer] -> [Integer] -> Bool)
-        eqInst t | "[Double]"  <- T.unpack t =  toDyn ((==) :: [Double] -> [Double] -> Bool)
+        eqInst :: Text -> Dynamic
+        eqInst "A"        =  toDyn ((==) :: A -> A -> Bool)
+        eqInst "B"        =  toDyn ((==) :: B -> B -> Bool)
+        eqInst "C"        =  toDyn ((==) :: C -> C -> Bool)
+        eqInst "D"        =  toDyn ((==) :: D -> D -> Bool)
+        eqInst "Acc"      =  toDyn ((==) :: Acc -> Acc -> Bool)
+        eqInst "Int"      =  toDyn ((==) :: Int -> Int -> Bool)
+        eqInst "Char"     =  toDyn ((==) :: Char -> Char -> Bool)
+        eqInst "Integer"  =  toDyn ((==) :: Integer -> Integer -> Bool)
+        eqInst "Double"   =  toDyn ((==) :: Double -> Double -> Bool)
+        eqInst "[A]"        =  toDyn ((==) :: [A] -> [A] -> Bool)
+        eqInst "[B]"        =  toDyn ((==) :: [B] -> [B] -> Bool)
+        eqInst "[C]"        =  toDyn ((==) :: [C] -> [C] -> Bool)
+        eqInst "[D]"        =  toDyn ((==) :: [D] -> [D] -> Bool)
+        eqInst "[Acc]"      =  toDyn ((==) :: [Acc] -> [Acc] -> Bool)
+        eqInst "[Int]"      =  toDyn ((==) :: [Int] -> [Int] -> Bool)
+        eqInst "[Char]"     =  toDyn ((==) :: [Char] -> [Char] -> Bool)
+        eqInst "[Integer]"  =  toDyn ((==) :: [Integer] -> [Integer] -> Bool)
+        eqInst "[Double]"   =  toDyn ((==) :: [Double] -> [Double] -> Bool)
         eqInst x = error $ "unknown type '" ++ (T.unpack x) ++ "'"
 
 
@@ -334,3 +341,6 @@ termToGen sig vv (Term (Symbol sym) args) =
 
 dynProp :: Gen Dynamic -> Property
 dynProp gen = QC.forAll gen (flip fromDyn False)
+
+-- TODO: can we kill a branch once a rewriteable term is detected?
+--

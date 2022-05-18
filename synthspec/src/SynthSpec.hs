@@ -1,3 +1,4 @@
+{-# OPTIONS -fno-max-valid-hole-fits #-}
 {-# LANGUAGE OverloadedStrings, TypeApplications #-}
 module SynthSpec (
     module SynthSpec.Types,
@@ -6,6 +7,7 @@ module SynthSpec (
 ) where
 
 import qualified Data.Map as Map
+import Data.Map (Map)
 import qualified Data.Dynamic as Dyn
 import qualified Data.Bifunctor as Bi
 import MonadUtils (concatMapM)
@@ -24,6 +26,54 @@ import qualified Test.QuickCheck as QC
 import Control.Monad (zipWithM_, filterM)
 import qualified Data.Text as T
 import qualified Data.Set as Set
+import qualified System.Environment as Env
+import qualified Text.Read as TR
+import Debug.Trace
+import Data.Maybe (fromMaybe, catMaybes)
+
+-- TODO: make this an e-graph or similar datastructure
+data Rewrite = Rewrite (Map Term Term) deriving (Show)
+
+rwrMap :: Rewrite -> Map Term Term
+rwrMap (Rewrite r) = r
+
+updateRewrites :: Term -> Rewrite -> IO Rewrite
+updateRewrites (Term "(==)" [_,a,b]) rw = 
+    return $ updRw a b rw
+updateRewrites _ r = return r
+
+updRw :: Term -> Term -> Rewrite -> Rewrite
+updRw a b (Rewrite mp) =
+    let (sml,big) = if (termSize a) <= (termSize b) then (a,b) else (b,a)
+    in Rewrite (Map.insert big sml mp)
+
+applyRewrites :: Rewrite -> Node -> IO Node
+applyRewrites r n = return n
+
+initRewrites :: IO Rewrite
+initRewrites = return $ Rewrite Map.empty
+
+termSize :: Term -> Int
+termSize (Term s []) = 1
+termSize (Term s args) = 1 + sum (map termSize args)
+
+badRewrite :: Rewrite -> Term -> (Term, Maybe Rewrite)
+badRewrite rwr@(Rewrite mp) term@(Term s args@(_:_))
+    | Just smllr <- mp Map.!? term = (smllr,Nothing)
+    | (args',mb_rwrs) <- unzip $ map (badRewrite rwr) args,
+      args' /= args =
+        let rwr' = case catMaybes mb_rwrs of
+                     [] -> rwr
+                     rs -> Rewrite (Map.unions $ map rwrMap rs)
+            t' = Term s args'
+            (rwt, rwrAfterRewrite) = badRewrite rwr' t'
+            finalRwt = updRw term rwt $ fromMaybe rwr' rwrAfterRewrite
+        in (rwt, Just finalRwt)
+    | otherwise = (term, Nothing)
+badRewrite rwr term = (term, Nothing)
+
+
+            
 
 synthSpec :: [Sig] -> IO ()
 synthSpec sigs = 
@@ -67,8 +117,6 @@ synthSpec sigs =
            --   map prettyTerm $
            --     concatMap (getAllTerms . refold . reduceFully . flip filterType resNode )
            --               (rtkUpToKAtLeast1 argNodes scope_comps anyArg True 8)
-           transform = map prettyTerm . getAllTerms . refold . reduceFully . flip filterType resNode
-           -- even_more_terms = map transform (rtkUpToK [] scope_comps anyArg True 7)
        putStrLn "Laws"
        putStrLn "---------------------------------"
        let qc_args = QC.stdArgs { QC.chatty = False,
@@ -80,25 +128,49 @@ synthSpec sigs =
             
            -- TODO: add e-graphs and rewrites.
            go :: Int -> IO ()
-           go n = go' Set.empty [0.. n] [1..] []
-           go' _ [] _ [] = return ()
-           go' seen (lvl_num:lvl_nums) nums []  = do
+           go n = do rwrts <- initRewrites
+                     go' Set.empty rwrts [0.. n] [1..] []
+           go' _ _ [] _ [] = return ()
+           go' seen rwrts (lvl_num:lvl_nums) nums []  = do
             putStrLn ("Looking for exprs with " ++ show lvl_num ++ " terms...")
-            let lvl_terms = transform $ rtkOfSize [] scope_comps anyArg True lvl_num
-            go' seen lvl_nums nums lvl_terms
-           go' seen lvl_nums nums@(n:ns) (term:terms)
-             | isId (flipTerm term) = skip
+            let nextNode = rtkOfSize [] scope_comps anyArg True lvl_num
+                -- TODO: where to best do the rewrites?
+                filtered_and_reduced = refold $ reduceFully $ filterType nextNode resNode
+            -- print filtered_and_reduced 
+            -- print rwrts
+            rewritten <- applyRewrites rwrts filtered_and_reduced
+            let terms = map prettyTerm $ getAllTerms rewritten
+            go' seen rwrts lvl_nums nums terms 
+           go' seen rwrts lvl_nums nums@(n:ns) (term:terms)
+             | isId wip_rewritten = skip
              | term `Set.member` seen = skip
              | otherwise = do
                -- putStrLn $ T.unpack ("Testing: " <> pp term)
-               let flipped = flipTerm term
-                   termGen = termToGen complSig Map.empty flipped
+               let termGen = termToGen complSig Map.empty wip_rewritten
                holds <- QC.isSuccess <$>
                           QC.quickCheckWithResult qc_args (dynProp termGen)
-               if not holds then continue nums terms
+               if not holds then continue rwrts' nums terms
                else do putStrLn ((show n <> ". ") <> T.unpack (pp term))
-                       continue ns terms
-              where continue = go' (term `Set.insert` seen) lvl_nums
-                    skip = go' seen lvl_nums nums terms
-       go 7
+                       -- TODO: e-graph optimization (egg), queue-up updates
+                       -- to the rewrites.
+                       rwrts'' <- updateRewrites wip_rewritten rwrts'
+                       continue rwrts'' ns terms
+              where continue rwrts = go' (term `Set.insert` seen) rwrts lvl_nums
+                    skip = go' seen rwrts lvl_nums nums terms
+                    (wip_rewritten, rwrts') = (fromMaybe rwrts) <$>
+                                                badRewrite rwrts (flipTerm term)
+       args <- Env.getArgs
+       let size = case args of
+                    arg:_ | Just n <- TR.readMaybe arg -> n
+                    _ -> 7
+       go size
                    
+-- TODO:
+-- 1. check if QC timeout can be bumped easily, otherwise email Nick
+-- 2. update rewrites when new ones are updated, knuth-bendix completion algorithm:
+--    what to do when the size is the same? We want only one way to reduce a term
+--    resolve critical pairs: if a term can be rewritten with two different rules
+--    might not be stable, but we *don't need confluence*. Term indexing: 
+--    have a hashtable of the root node. Makes it a lot faster.
+--
+--
