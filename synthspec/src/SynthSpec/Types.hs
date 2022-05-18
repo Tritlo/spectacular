@@ -99,16 +99,12 @@ sigGivens sigs = eqDef
                              $ TFun (TVar "a")
                              $ TFun (TVar "a")
                              $ TCons "Bool" []
-        consNames (t@(TCons "[]" [TCons a []]), n) =
-            map (\(name,v) -> (name, GivenFun (GivenVar (textToTy ("["<>a<>"]")) v
-                                                          (getArb $ "["<>a<>"]")) t))
-              $ take n
-              $ map (\n-> ("xs_" <> a <> "_" <> (T.pack (show n)), n)) [0..]
-        consNames (t@(TCons a []), n) = 
-            map (\(name,v) -> (name, GivenFun (GivenVar (textToTy a) v (getArb a)) t))
-              $ take n 
-              $ map (\n-> ("x_" <> a <> "_" <> (T.pack (show n)),n)) [0..]
-        consNames _ = []
+        consNames (t, n) | TCons "[]" [TCons a []] <- t = g a (\c -> "["<>c<>"]")
+                         | TCons a [] <- t = g a id
+                         | otherwise = []
+           where g a mod = map ((\gf@(GivenFun gv _) -> (gvToName gv, gf)) .
+                               (\v -> GivenFun (GivenVar (textToTy $ mod a) v
+                                                         (getArb   $ mod a)) t)) [0..(n-1)]
         textToTy :: Text -> TypeRep
         textToTy "A"          =  typeRep (Proxy :: Proxy A)
         textToTy "B"          =  typeRep (Proxy :: Proxy B)
@@ -250,6 +246,13 @@ data GivenInfo where
     GivenDef :: Text -> GivenInfo
     GivenInst :: TypeRep -> Dynamic -> GivenInfo
     GivenVar :: TypeRep -> Int -> DynGen -> GivenInfo
+
+gvToName :: GivenInfo -> Text
+gvToName (GivenVar tr i _) | "[]" <- tyConName (typeRepTyCon tr),
+                              [tra] <- typeRepArgs tr =
+                              "xs_"<>(T.pack $ show tra)<>"_"<> (T.pack $ show i)
+                           | otherwise = "xs_"<>(T.pack $ show tr)<>"_"<> (T.pack $ show i)
+gvToName _ = error "not a given var!"
 
 deriving instance Show (GivenInfo)
 
