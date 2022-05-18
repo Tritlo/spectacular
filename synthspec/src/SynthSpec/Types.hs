@@ -71,21 +71,21 @@ sigGivens sigs = eqDef
   where trs = map sfTypeRep $ Map.elems sigs
         -- we specialcase lists
         --cons t@(TCons "[]" r) = Map.unionsWith (+) $ map cons r
+        cons t@(TCons "[]" [TCons "[]" [TCons a []]]) = (Map.singleton t (1 :: Int))
         cons t@(TCons "[]" [TCons a []]) = (Map.singleton t (1 :: Int))
         cons t@(TCons _ r) = Map.unionsWith (+) $
                                 (Map.singleton t (1 :: Int)):(map cons r)
         cons (TFun arg ret) = Map.unionWith (+) (cons arg) (cons ret)
         cons (TVar _) = Map.empty
         allCons = Map.unionsWith max $ map cons trs
-        toEqInst e@(TCons "[]" [TCons t []])
-                        = Just ("<@Eq_["<>t<>"]@>",
-                                GivenFun (GivenInst tra (eqInst ("["<>t<>"]")))
+        toEqInst e | TCons "[]" [TCons t []] <- e = g t (\a -> "["<>a<>"]")
+                   | TCons "[]" [TCons "[]" [TCons t []]] <- e =
+                                g t (\c -> "[["<>c<>"]]")
+                   | TCons t [] <- e = g t id
+           where g t mod = Just ("<@Eq_"<>(mod t)<>"@>",
+                                GivenFun (GivenInst tra (eqInst (mod t)))
                                 $ TCons "Eq" [e])
-                          where tra = textToTy $ "[" <> t <> "]"
-        toEqInst e@(TCons t []) = Just ("<@Eq_"<>t<>"@>", 
-                                        GivenFun (GivenInst tra (eqInst t))
-                                        $ TCons "Eq" [e])
-                          where tra = textToTy t
+                            where tra = textToTy $ mod t
         toEqInst _ = Nothing
 
         -- Needs template haskell for user-given instances.
@@ -104,6 +104,8 @@ sigGivens sigs = eqDef
                              $ TFun (TVar "a")
                              $ TCons "Bool" []
         consNames (t, n) | TCons "[]" [TCons a []] <- t = g a (\c -> "["<>c<>"]")
+                         | TCons "[]" [TCons "[]" [TCons a []]] <- t =
+                                g a (\c -> "[["<>c<>"]]")
                          | TCons a [] <- t = g a id
                          | otherwise = []
            where g a mod = map ((\gf@(GivenFun gv _) -> (gvToName gv, gf)) .
@@ -121,13 +123,14 @@ sigGivens sigs = eqDef
         textToTy "Double"     =  typeRep (Proxy :: Proxy Double)
         textToTy "[A]"        =  typeRep (Proxy :: Proxy [A])
         textToTy "[B]"        =  typeRep (Proxy :: Proxy [B])
-        textToTy "[C]"        =  typeRep (Proxy :: Proxy [C])
-        textToTy "[D]"        =  typeRep (Proxy :: Proxy [D])
-        textToTy "[Acc]"      =  typeRep (Proxy :: Proxy [Acc])
-        textToTy "[Int]"      =  typeRep (Proxy :: Proxy [Int])
-        textToTy "[Char]"     =  typeRep (Proxy :: Proxy [Char])
-        textToTy "[Integer]"  =  typeRep (Proxy :: Proxy [Integer])
-        textToTy "[Double["   =  typeRep (Proxy :: Proxy [Double])
+        textToTy "[[A]]"      =  typeRep (Proxy :: Proxy [[A]])
+        -- textToTy "[C]"        =  typeRep (Proxy :: Proxy [C])
+        -- textToTy "[D]"        =  typeRep (Proxy :: Proxy [D])
+        -- textToTy "[Acc]"      =  typeRep (Proxy :: Proxy [Acc])
+        -- textToTy "[Int]"      =  typeRep (Proxy :: Proxy [Int])
+        -- textToTy "[Char]"     =  typeRep (Proxy :: Proxy [Char])
+        -- textToTy "[Integer]"  =  typeRep (Proxy :: Proxy [Integer])
+        -- textToTy "[Double]"   =  typeRep (Proxy :: Proxy [Double])
         textToTy x = error $ "unknown type '" ++ (T.unpack x) ++ "'"
         getArb :: Text -> DynGen
         getArb "A"          =  DynGen (arbitrary :: Gen A)
@@ -141,33 +144,35 @@ sigGivens sigs = eqDef
         getArb "Double"     =  DynGen (arbitrary :: Gen Double)
         getArb "[A]"        =  DynGen (arbitrary :: Gen [A])
         getArb "[B]"        =  DynGen (arbitrary :: Gen [B])
-        getArb "[C]"        =  DynGen (arbitrary :: Gen [C])
-        getArb "[D]"        =  DynGen (arbitrary :: Gen [D])
-        getArb "[Acc]"      =  DynGen (arbitrary :: Gen [Acc])
-        getArb "[Int]"      =  DynGen (arbitrary :: Gen [Int])
-        getArb "[Char]"     =  DynGen (arbitrary :: Gen [Char])
-        getArb "[Integer]"  =  DynGen (arbitrary :: Gen [Integer])
-        getArb "[Double]"   =  DynGen (arbitrary :: Gen [Double])
+        getArb "[[A]]"      =  DynGen (arbitrary :: Gen [[A]])
+        -- getArb "[C]"        =  DynGen (arbitrary :: Gen [C])
+        -- getArb "[D]"        =  DynGen (arbitrary :: Gen [D])
+        -- getArb "[Acc]"      =  DynGen (arbitrary :: Gen [Acc])
+        -- getArb "[Int]"      =  DynGen (arbitrary :: Gen [Int])
+        -- getArb "[Char]"     =  DynGen (arbitrary :: Gen [Char])
+        -- getArb "[Integer]"  =  DynGen (arbitrary :: Gen [Integer])
+        -- getArb "[Double]"   =  DynGen (arbitrary :: Gen [Double])
         getArb x = error $ "unknown type '" ++ (T.unpack x) ++ "'"
         eqInst :: Text -> Dynamic
-        eqInst "A"        =  toDyn ((==) :: A -> A -> Bool)
-        eqInst "B"        =  toDyn ((==) :: B -> B -> Bool)
-        eqInst "C"        =  toDyn ((==) :: C -> C -> Bool)
-        eqInst "D"        =  toDyn ((==) :: D -> D -> Bool)
-        eqInst "Acc"      =  toDyn ((==) :: Acc -> Acc -> Bool)
-        eqInst "Int"      =  toDyn ((==) :: Int -> Int -> Bool)
-        eqInst "Char"     =  toDyn ((==) :: Char -> Char -> Bool)
-        eqInst "Integer"  =  toDyn ((==) :: Integer -> Integer -> Bool)
-        eqInst "Double"   =  toDyn ((==) :: Double -> Double -> Bool)
+        eqInst "A"          =  toDyn ((==) :: A -> A -> Bool)
+        eqInst "B"          =  toDyn ((==) :: B -> B -> Bool)
+        eqInst "C"          =  toDyn ((==) :: C -> C -> Bool)
+        eqInst "D"          =  toDyn ((==) :: D -> D -> Bool)
+        eqInst "Acc"        =  toDyn ((==) :: Acc -> Acc -> Bool)
+        eqInst "Int"        =  toDyn ((==) :: Int -> Int -> Bool)
+        eqInst "Char"       =  toDyn ((==) :: Char -> Char -> Bool)
+        eqInst "Integer"    =  toDyn ((==) :: Integer -> Integer -> Bool)
+        eqInst "Double"     =  toDyn ((==) :: Double -> Double -> Bool)
         eqInst "[A]"        =  toDyn ((==) :: [A] -> [A] -> Bool)
         eqInst "[B]"        =  toDyn ((==) :: [B] -> [B] -> Bool)
-        eqInst "[C]"        =  toDyn ((==) :: [C] -> [C] -> Bool)
-        eqInst "[D]"        =  toDyn ((==) :: [D] -> [D] -> Bool)
-        eqInst "[Acc]"      =  toDyn ((==) :: [Acc] -> [Acc] -> Bool)
-        eqInst "[Int]"      =  toDyn ((==) :: [Int] -> [Int] -> Bool)
-        eqInst "[Char]"     =  toDyn ((==) :: [Char] -> [Char] -> Bool)
-        eqInst "[Integer]"  =  toDyn ((==) :: [Integer] -> [Integer] -> Bool)
-        eqInst "[Double]"   =  toDyn ((==) :: [Double] -> [Double] -> Bool)
+        eqInst "[[A]]"      =  toDyn ((==) :: [[A]] -> [[A]] -> Bool)
+        -- eqInst "[C]"        =  toDyn ((==) :: [C] -> [C] -> Bool)
+        -- eqInst "[D]"        =  toDyn ((==) :: [D] -> [D] -> Bool)
+        -- eqInst "[Acc]"      =  toDyn ((==) :: [Acc] -> [Acc] -> Bool)
+        -- eqInst "[Int]"      =  toDyn ((==) :: [Int] -> [Int] -> Bool)
+        -- eqInst "[Char]"     =  toDyn ((==) :: [Char] -> [Char] -> Bool)
+        -- eqInst "[Integer]"  =  toDyn ((==) :: [Integer] -> [Integer] -> Bool)
+        -- eqInst "[Double]"   =  toDyn ((==) :: [Double] -> [Double] -> Bool)
         eqInst x = error $ "unknown type '" ++ (T.unpack x) ++ "'"
 
 
@@ -272,10 +277,23 @@ instance Ord GivenInfo where
 
 
 gvToName :: GivenInfo -> Text
-gvToName (GivenVar tr i _) | "[]" <- tyConName (typeRepTyCon tr),
-                              [tra] <- typeRepArgs tr =
-                              "xs_"<>(T.pack $ show tra)<>"_"<> (T.pack $ show i)
-                           | otherwise = "xs_"<>(T.pack $ show tr)<>"_"<> (T.pack $ show i)
+gvToName (GivenVar tr i _) = nm<>ss<>sep<>trn<>r
+  where howNested tc | "[]" <- tyConName (typeRepTyCon tc),
+                       [tra] <- typeRepArgs tc
+                       = (1+) <$> howNested tra
+                     | otherwise = (tyConName $ typeRepTyCon tc, 0)
+        (tcn,hn) = howNested tr
+        ss = T.pack (replicate hn 's')
+        (nm,r) = if i < length varns
+                 then (T.pack [(varns !! i)], "")
+                 else ("x", "_" <> is)
+        sep = "::"
+        trn :: Text
+        trn = T.pack (show tr)
+        is :: Text
+        is = T.pack (show i)
+        varns :: String
+        varns = "xyzabcdefghijklmnopqrtuv"
 gvToName _ = error "not a given var!"
 
 
