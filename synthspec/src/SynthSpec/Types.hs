@@ -1,6 +1,6 @@
 {-# LANGUAGE TypeSynonymInstances, FlexibleInstances, OverloadedStrings,
              ScopedTypeVariables, TypeApplications, RecordWildCards, GADTs,
-             StandaloneDeriving #-}
+             StandaloneDeriving, KindSignatures, PolyKinds, RankNTypes #-}
 
 module SynthSpec.Types where
 import Data.Dynamic
@@ -37,6 +37,7 @@ import Data.List (groupBy, nub, sort)
 import Data.Function (on)
 import Data.Maybe (catMaybes)
 import Debug.Trace
+import qualified Type.Reflection as TR
 
 -- Types supported by ECTA
 -- newtype A = A Any deriving Typeable
@@ -63,9 +64,12 @@ instance Arbitrary Acc where
   arbitrary = Acc <$> arbitrary
 
 
-data GeneratedInstance = Gend {g_tr :: TypeRep,
-                               g_arb :: DynGen,
-                               g_eq :: Dynamic }
+data GeneratedInstance = Gend {
+    g_tr :: TypeRep,
+    g_arb :: DynGen,
+    g_eq :: Dynamic,
+    g_li_i :: GeneratedInstance
+    }
 
 sigGivens :: Sig -> Sig 
 sigGivens sigs = eqDef
@@ -122,29 +126,32 @@ sigGivens sigs = eqDef
         getArb = g_arb . genRep
         eqInst = g_eq . genRep
 
-        genRepFromProxy :: (Eq a, Typeable a, Arbitrary a) => Proxy a -> GeneratedInstance
-        genRepFromProxy p@(Proxy :: Proxy a) = Gend {..}
-          where g_tr = typeRep p
+        genRepFromProxy :: (Eq a, Typeable a, Arbitrary a) =>
+                           Proxy a -> GeneratedInstance
+        genRepFromProxy (Proxy :: Proxy a) = Gend {..}
+          where g_tr = typeRep (Proxy :: Proxy a)
                 g_arb = DynGen (arbitrary :: Gen a)
                 g_eq = toDyn ((==) :: a -> a -> Bool)
+                g_li_i = genRepFromProxy (Proxy :: Proxy [a])
 
         genRep :: Text -> GeneratedInstance
-        genRep "A"          =  genRepFromProxy (Proxy :: Proxy A)
-        genRep "B"          =  genRepFromProxy (Proxy :: Proxy B)
-        genRep "C"          =  genRepFromProxy (Proxy :: Proxy C)
-        genRep "D"          =  genRepFromProxy (Proxy :: Proxy D)
-        genRep "Acc"        =  genRepFromProxy (Proxy :: Proxy Acc)
-        genRep "Int"        =  genRepFromProxy (Proxy :: Proxy Int)
-        genRep "Char"       =  genRepFromProxy (Proxy :: Proxy Char)
-        genRep "Bool"       =  genRepFromProxy (Proxy :: Proxy Bool)
-        genRep "Integer"    =  genRepFromProxy (Proxy :: Proxy Integer)
-        genRep "Double"     =  genRepFromProxy (Proxy :: Proxy Double)
-        genRep "[A]"        =  genRepFromProxy (Proxy :: Proxy [A])
-        genRep "[B]"        =  genRepFromProxy (Proxy :: Proxy [B])
-        genRep "[[A]]"      =  genRepFromProxy (Proxy :: Proxy [[A]])
-        genRep "[C]"        =  genRepFromProxy (Proxy :: Proxy [C])
-        genRep "[Int]"      =  genRepFromProxy (Proxy :: Proxy [Int])
-        genRep x = error $ "unknown type '" ++ (T.unpack x) ++ "'"
+        genRep "A"        =  genRepFromProxy (Proxy :: Proxy A)
+        genRep "B"        =  genRepFromProxy (Proxy :: Proxy B)
+        genRep "C"        =  genRepFromProxy (Proxy :: Proxy C)
+        genRep "D"        =  genRepFromProxy (Proxy :: Proxy D)
+        genRep "Acc"      =  genRepFromProxy (Proxy :: Proxy Acc)
+        genRep "()"       =  genRepFromProxy (Proxy :: Proxy ())
+        genRep "Int"      =  genRepFromProxy (Proxy :: Proxy Int)
+        genRep "Bool"     =  genRepFromProxy (Proxy :: Proxy Bool)
+        genRep "Char"     =  genRepFromProxy (Proxy :: Proxy Char)
+        genRep "Integer"  =  genRepFromProxy (Proxy :: Proxy Integer)
+        genRep "Double"   =  genRepFromProxy (Proxy :: Proxy Double)
+        genRep "Float"    =  genRepFromProxy (Proxy :: Proxy Float)
+        genRep "Ordering" =  genRepFromProxy (Proxy :: Proxy Ordering)
+        genRep "Word"     =  genRepFromProxy (Proxy :: Proxy Word)
+        genRep t | '[':up <- T.unpack t, ']':pu <- reverse up =
+                    g_li_i $ genRep $ T.pack $ reverse pu
+        genRep x = error $ "Unknown type '" ++ (T.unpack x) ++ "'"
 
 
 
