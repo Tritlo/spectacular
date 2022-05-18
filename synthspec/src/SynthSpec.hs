@@ -142,8 +142,8 @@ synthSpec sigs =
             let terms = map prettyTerm $ getAllTerms rewritten
             go' seen rwrts lvl_nums nums terms 
            go' seen rwrts lvl_nums nums@(n:ns) (term:terms)
+             | simplified `Set.member` seen = skip
              | isId wip_rewritten = skip
-             | term `Set.member` seen = skip
              | otherwise = do
                -- putStrLn $ T.unpack ("Testing: " <> pp term)
                let termGen = termToGen complSig Map.empty wip_rewritten
@@ -155,10 +155,12 @@ synthSpec sigs =
                        -- to the rewrites.
                        rwrts'' <- updateRewrites wip_rewritten rwrts'
                        continue rwrts'' ns terms
-              where continue rwrts = go' (term `Set.insert` seen) rwrts lvl_nums
+              where continue rwrts = go' (simplified `Set.insert` seen) rwrts lvl_nums
                     skip = go' seen rwrts lvl_nums nums terms
+                    -- wrt variable renaming
+                    simplified = reduceVars complSig term
                     (wip_rewritten, rwrts') = (fromMaybe rwrts) <$>
-                                                badRewrite rwrts (flipTerm term)
+                                                badRewrite rwrts (flipTerm simplified)
        args <- Env.getArgs
        let size = case args of
                     arg:_ | Just n <- TR.readMaybe arg -> n

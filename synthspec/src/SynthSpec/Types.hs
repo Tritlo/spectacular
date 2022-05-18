@@ -33,6 +33,10 @@ import qualified Test.QuickCheck as QC
 import System.IO.Unsafe
 import Unsafe.Coerce
 import Test.QuickCheck.Property
+import Data.List (groupBy, nub, sort)
+import Data.Function (on)
+import Data.Maybe (catMaybes)
+import Debug.Trace
 
 -- Types supported by ECTA
 -- newtype A = A Any deriving Typeable
@@ -247,6 +251,26 @@ data GivenInfo where
     GivenInst :: TypeRep -> Dynamic -> GivenInfo
     GivenVar :: TypeRep -> Int -> DynGen -> GivenInfo
 
+
+deriving instance Show GivenInfo
+
+instance Eq GivenInfo where
+  (GivenDef t) == (GivenDef s) = s == t
+  (GivenInst t _) == (GivenInst s _) = t == s
+  (GivenVar t i _) == (GivenVar s j _) = (i == j) && (t == s)
+
+instance Ord GivenInfo where
+  compare (GivenDef t) (GivenDef s) = compare t s
+  compare (GivenInst t _) (GivenInst s _) = compare t s
+  compare (GivenVar t i _) (GivenVar s j _) = if t == s
+                                              then compare i j
+                                              else compare t s
+  compare (GivenDef {}) _ = LT
+  compare (GivenInst {}) (GivenDef {}) = GT
+  compare (GivenInst {}) (GivenVar {}) = LT
+  compare (GivenVar {}) _ = GT
+
+
 gvToName :: GivenInfo -> Text
 gvToName (GivenVar tr i _) | "[]" <- tyConName (typeRepTyCon tr),
                               [tra] <- typeRepArgs tr =
@@ -254,7 +278,6 @@ gvToName (GivenVar tr i _) | "[]" <- tyConName (typeRepTyCon tr),
                            | otherwise = "xs_"<>(T.pack $ show tr)<>"_"<> (T.pack $ show i)
 gvToName _ = error "not a given var!"
 
-deriving instance Show (GivenInfo)
 
 data DynGen where
    DynGen :: forall a. Typeable a => Gen a -> DynGen
@@ -322,13 +345,6 @@ eqLi _ _ _ = False
 type VarVals = Map Text Dynamic
 
 
--- reduceVars :: Sig -> Term -> Term
--- reduceVars sig (Term (Symbol sym) args) =
---   where 
---      vars (Term (Symbol s) []) | Just gv <- sig Map.!? s = [gv]
---                                | otherwise = []
---      vars (Term _ args) = concatMap vars args
-         
 
 getVars :: Sig -> Term -> Gen VarVals
 getVars sig (Term (Symbol sym) args) = do
@@ -342,6 +358,35 @@ getVars sig (Term (Symbol sym) args) = do
 traceShowIdLbl :: Show a => String -> a -> a
 -- traceShowIdLbl lbl a = (trace (lbl ++ show a) a)
 traceShowIdLbl _ a = a
+
+
+-- We don't want to keep repeating the same laws
+reduceVars :: Sig -> Term -> Term
+reduceVars sig term = simplified
+  where vars :: Term -> [GivenInfo]
+        vars (Term (Symbol s) []) |
+            Just (GivenFun {given_info=v@(GivenVar _ _ _)}) <- sig Map.!? s =
+                [v]
+        vars (Term _ args) = concatMap vars args
+        howMany :: Term -> [[GivenInfo]]
+        howMany = groupBy ((==) `on` (\(GivenVar tr _ _) -> tr)) . sort . nub . vars
+        substs vs = catMaybes $ zipWith f vs [0..]
+          where f v@(GivenVar tr i g) j = if i == j then Nothing
+                                          else Just (v,GivenVar tr j g)
+        changes :: Map GivenInfo GivenInfo 
+        changes = Map.unions $ map (Map.fromList . substs) $ howMany term
+        applRw :: Term -> Term
+        applRw ttr@(Term (Symbol s) [])
+           | Just (GivenFun {given_info=v@(GivenVar _ _ _)}) <- sig Map.!? s,
+             Just v' <- changes Map.!? v = Term (Symbol (gvToName v')) []
+           | otherwise = ttr
+        applRw (Term s args) = Term s (map applRw args)
+        simplified = applRw term
+        
+
+
+                
+
 
 -- Note: should be flipped 
 termToGen :: Sig -> VarVals -> Term -> Gen Dynamic
