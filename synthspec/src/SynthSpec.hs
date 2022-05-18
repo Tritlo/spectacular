@@ -67,30 +67,26 @@ synthSpec sigs =
            --   map prettyTerm $
            --     concatMap (getAllTerms . refold . reduceFully . flip filterType resNode )
            --               (rtkUpToKAtLeast1 argNodes scope_comps anyArg True 8)
-           even_more_terms =
-             map prettyTerm $
-               concatMap (getAllTerms . refold . reduceFully . flip filterType resNode )
-                         (rtkUpToK [] scope_comps anyArg True 6)
-       -- putStrLn "even_more_terms"
-       -- putStrLn "------------------------------------------------------------"
-       -- mapM_ (print . pp) even_more_terms
-       -- mapM_ (print) even_more_terms
-       -- putStrLn "flipped"
-       -- putStrLn "------------------------------------------------------------"
-       -- mapM_ (print . flipTerm) even_more_terms
+           transform = map prettyTerm . getAllTerms . refold . reduceFully . flip filterType resNode
+           -- even_more_terms = map transform (rtkUpToK [] scope_comps anyArg True 7)
        putStrLn "Laws"
-       putStrLn "------------------------------------------------------------"
+       putStrLn "---------------------------------"
        let qc_args = QC.stdArgs { QC.chatty = False,
                                   QC.maxShrinks = 0,
                                   QC.maxSuccess = 1000}
        let isId :: Term -> Bool
            isId (Term "(==)" [_, a,b]) = a == b
            isId _ = False
-
-           go :: [Term] -> IO ()
-           go = go' Set.empty [1..] 
-           go' _ _ [] = return ()
-           go' seen nums@(n:ns) (term:terms)
+            
+           -- TODO: add e-graphs and rewrites.
+           go :: Int -> IO ()
+           go n = go' Set.empty [0.. n] [1..] []
+           go' _ [] _ [] = return ()
+           go' seen (lvl_num:lvl_nums) nums []  = do
+            putStrLn ("Looking for exprs with " ++ show lvl_num ++ " terms...")
+            let lvl_terms = transform $ rtkOfSize [] scope_comps anyArg True lvl_num
+            go' seen lvl_nums nums lvl_terms
+           go' seen lvl_nums nums@(n:ns) (term:terms)
              | isId (flipTerm term) = skip
              | term `Set.member` seen = skip
              | otherwise = do
@@ -102,9 +98,7 @@ synthSpec sigs =
                if not holds then continue nums terms
                else do putStrLn ((show n <> ". ") <> T.unpack (pp term))
                        continue ns terms
-              where continue = go' (term `Set.insert` seen)
-                    skip = go' seen nums terms
-       go even_more_terms
+              where continue = go' (term `Set.insert` seen) lvl_nums
+                    skip = go' seen lvl_nums nums terms
+       go 7
                    
-       --mapM_ (print) even_more_terms
-       -- mapM_ (QC.generate @Bool. termToProp complSig) even_more_terms

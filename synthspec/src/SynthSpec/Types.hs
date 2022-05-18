@@ -334,13 +334,3 @@ termToGen sig vv (Term (Symbol sym) args) =
 
 dynProp :: Gen Dynamic -> Property
 dynProp gen = QC.forAll gen (flip fromDyn False)
-
--- | castDyn casts a Dynamic to any typeable value, and fails with a descriptive
--- error if the types dont match. Automatically inserted for casting Dynamic
--- values back to static values.
-castDyn :: forall a . (Typeable a, HasCallStack) => Dynamic -> a
-castDyn arg = fromDyn arg err
-  where err = error ("Couldn't match expected type '" ++ target
-                     ++ "' with actual dynamic type '" ++ actual  ++ "'")
-        target = show (someTypeRep (Proxy :: Proxy a))
-        actual = show (dynTypeRep arg)
