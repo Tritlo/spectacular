@@ -63,6 +63,10 @@ instance Arbitrary Acc where
   arbitrary = Acc <$> arbitrary
 
 
+data GeneratedInstance = Gend {g_tr :: TypeRep,
+                               g_arb :: DynGen,
+                               g_eq :: Dynamic }
+
 sigGivens :: Sig -> Sig 
 sigGivens sigs = eqDef
                  -- <> eqLaws
@@ -111,72 +115,36 @@ sigGivens sigs = eqDef
            where g a mod = map ((\gf@(GivenFun gv _) -> (gvToName gv, gf)) .
                                (\v -> GivenFun (GivenVar (textToTy $ mod a) v
                                                          (getArb   $ mod a)) t)) [0..(n-1)]
+
         textToTy :: Text -> TypeRep
-        textToTy "A"          =  typeRep (Proxy :: Proxy A)
-        textToTy "B"          =  typeRep (Proxy :: Proxy B)
-        textToTy "C"          =  typeRep (Proxy :: Proxy C)
-        textToTy "D"          =  typeRep (Proxy :: Proxy D)
-        textToTy "Acc"        =  typeRep (Proxy :: Proxy Acc)
-        textToTy "Int"        =  typeRep (Proxy :: Proxy Int)
-        textToTy "Char"       =  typeRep (Proxy :: Proxy Char)
-        textToTy "Bool"       =  typeRep (Proxy :: Proxy Bool)
-        textToTy "Integer"    =  typeRep (Proxy :: Proxy Integer)
-        textToTy "Double"     =  typeRep (Proxy :: Proxy Double)
-        textToTy "[A]"        =  typeRep (Proxy :: Proxy [A])
-        textToTy "[B]"        =  typeRep (Proxy :: Proxy [B])
-        textToTy "[[A]]"      =  typeRep (Proxy :: Proxy [[A]])
-        textToTy "[C]"        =  typeRep (Proxy :: Proxy [C])
-        -- textToTy "[D]"        =  typeRep (Proxy :: Proxy [D])
-        -- textToTy "[Acc]"      =  typeRep (Proxy :: Proxy [Acc])
-        textToTy "[Int]"      =  typeRep (Proxy :: Proxy [Int])
-        -- textToTy "[Char]"     =  typeRep (Proxy :: Proxy [Char])
-        -- textToTy "[Integer]"  =  typeRep (Proxy :: Proxy [Integer])
-        -- textToTy "[Double]"   =  typeRep (Proxy :: Proxy [Double])
-        textToTy x = error $ "unknown type '" ++ (T.unpack x) ++ "'"
+        textToTy = g_tr . genRep
         getArb :: Text -> DynGen
-        getArb "A"          =  DynGen (arbitrary :: Gen A)
-        getArb "B"          =  DynGen (arbitrary :: Gen B)
-        getArb "C"          =  DynGen (arbitrary :: Gen C)
-        getArb "D"          =  DynGen (arbitrary :: Gen D)
-        getArb "Acc"        =  DynGen (arbitrary :: Gen Acc)
-        getArb "Int"        =  DynGen (arbitrary :: Gen Int)
-        getArb "Char"       =  DynGen (arbitrary :: Gen Char)
-        getArb "Bool"       =  DynGen (arbitrary :: Gen Bool)
-        getArb "Integer"    =  DynGen (arbitrary :: Gen Integer)
-        getArb "Double"     =  DynGen (arbitrary :: Gen Double)
-        getArb "[A]"        =  DynGen (arbitrary :: Gen [A])
-        getArb "[B]"        =  DynGen (arbitrary :: Gen [B])
-        getArb "[[A]]"      =  DynGen (arbitrary :: Gen [[A]])
-        getArb "[C]"        =  DynGen (arbitrary :: Gen [C])
-        -- getArb "[D]"        =  DynGen (arbitrary :: Gen [D])
-        -- getArb "[Acc]"      =  DynGen (arbitrary :: Gen [Acc])
-        getArb "[Int]"      =  DynGen (arbitrary :: Gen [Int])
-        -- getArb "[Char]"     =  DynGen (arbitrary :: Gen [Char])
-        -- getArb "[Integer]"  =  DynGen (arbitrary :: Gen [Integer])
-        -- getArb "[Double]"   =  DynGen (arbitrary :: Gen [Double])
-        getArb x = error $ "unknown type '" ++ (T.unpack x) ++ "'"
-        eqInst :: Text -> Dynamic
-        eqInst "A"          =  toDyn ((==) :: A -> A -> Bool)
-        eqInst "B"          =  toDyn ((==) :: B -> B -> Bool)
-        eqInst "C"          =  toDyn ((==) :: C -> C -> Bool)
-        eqInst "D"          =  toDyn ((==) :: D -> D -> Bool)
-        eqInst "Acc"        =  toDyn ((==) :: Acc -> Acc -> Bool)
-        eqInst "Int"        =  toDyn ((==) :: Int -> Int -> Bool)
-        eqInst "Char"       =  toDyn ((==) :: Char -> Char -> Bool)
-        eqInst "Bool"       =  toDyn ((==) :: Bool -> Bool -> Bool)
-        eqInst "Integer"    =  toDyn ((==) :: Integer -> Integer -> Bool)
-        eqInst "Double"     =  toDyn ((==) :: Double -> Double -> Bool)
-        eqInst "[A]"        =  toDyn ((==) :: [A] -> [A] -> Bool)
-        eqInst "[B]"        =  toDyn ((==) :: [B] -> [B] -> Bool)
-        eqInst "[[A]]"      =  toDyn ((==) :: [[A]] -> [[A]] -> Bool)
-        eqInst "[C]"        =  toDyn ((==) :: [C] -> [C] -> Bool)
-        -- eqInst "[D]"        =  toDyn ((==) :: [D] -> [D] -> Bool)
-        -- eqInst "[Acc]"      =  toDyn ((==) :: [Acc] -> [Acc] -> Bool)
-        eqInst "[Int]"      =  toDyn ((==) :: [Int] -> [Int] -> Bool)
-        -- eqInst "[Char]"     =  toDyn ((==) :: [Char] -> [Char] -> Bool)
-        -- eqInst "[Integer]"  =  toDyn ((==) :: [Integer] -> [Integer] -> Bool)
-        -- eqInst "[Double]"   =  toDyn ((==) :: [Double] -> [Double] -> Bool)
-        eqInst x = error $ "unknown type '" ++ (T.unpack x) ++ "'"
+        getArb = g_arb . genRep
+        eqInst = g_eq . genRep
+
+        genRepFromProxy :: (Eq a, Typeable a, Arbitrary a) => Proxy a -> GeneratedInstance
+        genRepFromProxy p@(Proxy :: Proxy a) = Gend {..}
+          where g_tr = typeRep p
+                g_arb = DynGen (arbitrary :: Gen a)
+                g_eq = toDyn ((==) :: a -> a -> Bool)
+
+        genRep :: Text -> GeneratedInstance
+        genRep "A"          =  genRepFromProxy (Proxy :: Proxy A)
+        genRep "B"          =  genRepFromProxy (Proxy :: Proxy B)
+        genRep "C"          =  genRepFromProxy (Proxy :: Proxy C)
+        genRep "D"          =  genRepFromProxy (Proxy :: Proxy D)
+        genRep "Acc"        =  genRepFromProxy (Proxy :: Proxy Acc)
+        genRep "Int"        =  genRepFromProxy (Proxy :: Proxy Int)
+        genRep "Char"       =  genRepFromProxy (Proxy :: Proxy Char)
+        genRep "Bool"       =  genRepFromProxy (Proxy :: Proxy Bool)
+        genRep "Integer"    =  genRepFromProxy (Proxy :: Proxy Integer)
+        genRep "Double"     =  genRepFromProxy (Proxy :: Proxy Double)
+        genRep "[A]"        =  genRepFromProxy (Proxy :: Proxy [A])
+        genRep "[B]"        =  genRepFromProxy (Proxy :: Proxy [B])
+        genRep "[[A]]"      =  genRepFromProxy (Proxy :: Proxy [[A]])
+        genRep "[C]"        =  genRepFromProxy (Proxy :: Proxy [C])
+        genRep "[Int]"      =  genRepFromProxy (Proxy :: Proxy [Int])
+        genRep x = error $ "unknown type '" ++ (T.unpack x) ++ "'"
 
 
 
