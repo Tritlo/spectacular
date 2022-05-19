@@ -169,7 +169,7 @@ synthSpec sigs =
               where continue rwrts = go' (simplified `Set.insert` seen) rwrts lvl_nums
                     skip = go' seen rwrts' lvl_nums nums terms
                     -- wrt variable renaming
-                    simplified = reduceVars complSig term
+                    simplified = simplifyVars complSig term
                     -- we're probably missing out on some rewrites due to
                     -- us operating on the flipped term
                     (wip_rewritten, rwrts') = (fromMaybe rwrts) <$>
@@ -181,12 +181,17 @@ synthSpec sigs =
        go size
                    
 -- TODO:
--- 1. check if QC timeout can be bumped easily, otherwise email Nick
--- 2. update rewrites when new ones are updated, knuth-bendix completion algorithm:
+-- 2. knuth-bendix completion algorithm (we're almost there)
 --    what to do when the size is the same? We want only one way to reduce a term
 --    resolve critical pairs: if a term can be rewritten with two different rules
 --    might not be stable, but we *don't need confluence*. Term indexing: 
 --    have a hashtable of the root node. Makes it a lot faster.
+-- 3. If we discover that e.g. ((==) xs0_[A]) (((++) []) xs0_[A]), we've found
+--    something that is idempotent! Same with e.g. ((==) x0_A) (head (cons x0_A) xs0_[A]),
+--    it will always hold for any value of that *type*, (so e.g. 
+--    ((==) xs0_[A]) (((++) []) xs0_[A]) means that
+--    ((==) (concat xss0_[[A]]) (((++) []) (concat xss0_[[A]])) etc etc.
+--
 --
 -- Check for equality in the presence of non-total functions, e.g.
 -- reverse (reverse xs) = xs. Allow an option to add more information for this,

@@ -34,7 +34,7 @@ import qualified Test.QuickCheck as QC
 import System.IO.Unsafe
 import Unsafe.Coerce
 import Test.QuickCheck.Property
-import Data.List (groupBy, nub, sort)
+import Data.List (groupBy, nub, sort, sortBy)
 import Data.Function (on)
 import Data.Maybe (catMaybes)
 import Debug.Trace
@@ -69,8 +69,8 @@ sigGivens :: Sig -> Sig
 sigGivens sigs = eqDef
                  -- <> eqLaws
                  <> Map.fromList (mapMaybe toEqInst (Map.keys allCons))
-                 <> Map.fromList (mapMaybe toEmptyLi (Map.keys allCons))
                  <> Map.fromList (concatMap consNames (Map.assocs allCons))
+                 <> Map.fromList (mapMaybe toEmptyLi (Map.keys allCons))
   where trs = map sfTypeRep $ Map.elems sigs
         -- we specialcase lists
         --cons t@(TCons "[]" r) = Map.unionsWith (+) $ map cons r
@@ -117,8 +117,9 @@ sigGivens sigs = eqDef
            where g rep = map ((\gf@(GivenFun gv _) -> (gvToName gv, gf)) .
                               (\v -> GivenFun (GivenVar (g_tr rep) v
                               (g_arb rep)) t)) [0..(n-1)]
-
-        genRepFromProxy :: (Eq a, Typeable a, Arbitrary a) =>
+        
+        -- We have show here as well, but could be removed.
+        genRepFromProxy :: (Show a, Eq a, Typeable a, Arbitrary a) =>
                            Proxy a -> GeneratedInstance
         genRepFromProxy (Proxy :: Proxy a) = Gend {..}
           where g_tr = typeRep (Proxy :: Proxy a)
@@ -128,8 +129,9 @@ sigGivens sigs = eqDef
                 g_empty_li = toDyn ([] :: [a])
                 g_li_i = genRepFromProxy (Proxy :: Proxy [a])
                 -- TODO: do something fancier here.
+                -- we could add a Show here?
                 wrappedEq :: a -> a -> Property
-                wrappedEq a b = property (((==) a b))
+                wrappedEq a b = property ((==) a b)
 
         genRepFromProxyNoEq :: (Typeable a, Arbitrary a) =>
                                Proxy a -> GeneratedInstance
@@ -372,17 +374,31 @@ renameSymbols changes ttr@(Term (Symbol s) args)
 
 -- We don't want to keep repeating the same laws,
 -- and we want to have nicer names for variables
-reduceVars :: Sig -> Term -> Term
-reduceVars sig term = simplified
+simplifyVars :: Sig -> Term -> Term
+simplifyVars sig term = simplified
   where howMany :: Term -> [[GivenInfo]]
-        howMany = groupBy ((==) `on` (\(GivenVar tr _ _) -> tr)) 
-                  . sort . nub . map snd . termVars sig
+        gv_tr (GivenVar tr _ _) = tr
+        tvs = nub . map snd . termVars sig
+        howMany = groupBy ((==) `on` gv_tr) . sort . tvs
         substs vs = catMaybes $ zipWith f vs [0..]
-          where f v@(GivenVar tr i g) j = if i == j then Nothing
-                                          else Just (gvToName v,
-                                                     gvToName $ GivenVar tr j g)
-        changes = Map.unions $ map (Map.fromList . substs) $ howMany term
-        simplified = renameSymbols changes term
+          where f v@(GivenVar tr i g) j = 
+                    if i == j then Nothing
+                    else Just (gvToName v, gvToName $ GivenVar tr j g)
+        fewer_vars :: Map Text Text
+        fewer_vars = Map.unions $ map (Map.fromList . substs) $ howMany term
+        with_fewer_vars :: Term
+        with_fewer_vars = renameSymbols fewer_vars term
+        whatOrder :: Term -> [[GivenInfo]]
+        whatOrder = groupBy ((==) `on` gv_tr) . sortBy (compare `on` gv_tr) . tvs
+        -- We want to avoid things where just the order of the variables 
+        -- is changed.
+        subst_order vs =  zipWith f vs [0..]
+          where f v@(GivenVar tr i g) j = (gvToName v, gvToName $ GivenVar tr j g)
+        reordered_vars :: Map Text Text
+        reordered_vars = Map.unions $ map (Map.fromList . subst_order) $
+                            whatOrder with_fewer_vars
+        simplified = renameSymbols reordered_vars with_fewer_vars
+
         
 
 
