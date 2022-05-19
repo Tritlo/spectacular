@@ -94,7 +94,7 @@ termSize (Term s args) = 1 + sum (map termSize args)
 
 badRewrite :: Rewrite -> Term -> (Term, Maybe Rewrite)
 badRewrite rwr@(Rewrite hole_rules mp) orig_term
-    | Just smllr <- mp Map.!? term = (smllr,Nothing)
+    | Just smllr <- mp Map.!? term = (runMatch smllr,Nothing)
     | (args',mb_rwrs) <- unzip $ map (badRewrite rwr) args,
       args' /= args =
         let rwr' = case catMaybes mb_rwrs of
@@ -103,9 +103,10 @@ badRewrite rwr@(Rewrite hole_rules mp) orig_term
             t' = Term s args'
             (rwt, rwrAfterRewrite) = badRewrite rwr' t'
             finalRwt = updRw term rwt $ fromMaybe rwr' rwrAfterRewrite
-        in (rwt, Just finalRwt)
-    | otherwise = (term, Nothing)
-  where term@(Term s args) = foldr matchHole orig_term hole_rules
+        in (runMatch rwt, Just finalRwt)
+    | otherwise = (runMatch $ term, Nothing)
+  where runMatch = flip (foldr matchHole) hole_rules
+        term@(Term s args) = runMatch orig_term
 --badRewrite rwr term = (term, Nothing)
 
 
@@ -193,7 +194,7 @@ synthSpec sigs =
                        rwrts'' <- case complSig Map.!? lhss of
                                     Just (GivenFun {given_info = GivenVar {}}) -> do
                                         let holey = perforate lhs rhs
-                                        putStrLn $ ppNpTerm $ holey
+                                        -- putStrLn $ ppNpTerm $ holey
                                         updateRewrites (Right (lht, holey)) rwrts'
                                     _ -> updateRewrites (Left wip_rewritten) rwrts'
                        continue rwrts'' ns terms
