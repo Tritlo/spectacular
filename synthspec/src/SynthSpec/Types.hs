@@ -1,6 +1,7 @@
 {-# LANGUAGE TypeSynonymInstances, FlexibleInstances, OverloadedStrings,
              ScopedTypeVariables, TypeApplications, RecordWildCards, GADTs,
-             StandaloneDeriving, KindSignatures, PolyKinds, RankNTypes #-}
+             StandaloneDeriving, KindSignatures, PolyKinds, RankNTypes,
+             GeneralizedNewtypeDeriving, FlexibleContexts #-}
 
 module SynthSpec.Types where
 import Data.Dynamic
@@ -39,35 +40,27 @@ import Data.Maybe (catMaybes)
 import Debug.Trace
 import qualified Type.Reflection as TR
 
--- Types supported by ECTA
--- newtype A = A Any deriving Typeable
--- newtype B = B Any deriving Typeable
--- newtype C = C Any deriving Typeable
--- newtype D = D Any deriving Typeable
--- newtype Acc = Acc Any deriving Typeable
---
-newtype A = A Int deriving (Typeable, Eq, Show, Ord)
-newtype B = B Int deriving (Typeable, Eq, Show, Ord)
-newtype C = C Int deriving (Typeable, Eq, Show, Ord)
-newtype D = D Int deriving (Typeable, Eq, Show, Ord)
-newtype Acc = Acc Int deriving (Typeable, Eq, Show, Ord)
+import qualified Data.Monoid as M
 
-instance Arbitrary A where
-  arbitrary = A <$> arbitrary
-instance Arbitrary B where
-  arbitrary = B <$> arbitrary
-instance Arbitrary C where
-  arbitrary = C <$> arbitrary
-instance Arbitrary D where
-  arbitrary = D <$> arbitrary
-instance Arbitrary Acc where
-  arbitrary = Acc <$> arbitrary
+newtype A = A M.Any deriving (Typeable, Eq, Show, Ord)
+newtype B = B M.Any deriving (Typeable, Eq, Show, Ord)
+newtype C = C M.Any deriving (Typeable, Eq, Show, Ord)
+newtype D = D M.Any deriving (Typeable, Eq, Show, Ord)
+newtype Acc = Acc M.Any deriving (Typeable, Eq, Show, Ord)
 
+
+deriving instance Arbitrary A
+deriving instance QC.CoArbitrary A
+deriving instance Arbitrary B
+deriving instance Arbitrary C
+deriving instance Arbitrary D
+deriving instance Arbitrary Acc
 
 data GeneratedInstance = Gend {
     g_tr :: TypeRep,
     g_arb :: DynGen,
-    g_eq :: Dynamic,
+    g_eq :: Maybe Dynamic,
+    g_empty_li :: Dynamic,
     g_li_i :: GeneratedInstance
     }
 
@@ -75,26 +68,32 @@ sigGivens :: Sig -> Sig
 sigGivens sigs = eqDef
                  -- <> eqLaws
                  <> Map.fromList (mapMaybe toEqInst (Map.keys allCons))
+                 <> Map.fromList (mapMaybe toEmptyLi (Map.keys allCons))
                  <> Map.fromList (concatMap consNames (Map.assocs allCons))
   where trs = map sfTypeRep $ Map.elems sigs
         -- we specialcase lists
         --cons t@(TCons "[]" r) = Map.unionsWith (+) $ map cons r
-        cons t@(TCons "[]" [TCons "[]" [TCons a []]]) = (Map.singleton t (1 :: Int))
-        cons t@(TCons "[]" [TCons a []]) = (Map.singleton t (1 :: Int))
+        -- cons t@(TCons "[]" [TCons "[]" [TCons a []]]) = (Map.singleton t (1 :: Int))
+        -- cons t@(TCons "[]" [TCons a []]) = (Map.singleton t (1 :: Int))
         cons t@(TCons _ r) = Map.unionsWith (+) $
                                 (Map.singleton t (1 :: Int)):(map cons r)
-        cons (TFun arg ret) = Map.unionWith (+) (cons arg) (cons ret)
+        cons t@(TFun arg ret) = Map.unionsWith (+) [
+                (Map.singleton t (1 :: Int)),
+                (cons arg),
+                (cons ret)]
         cons (TVar _) = Map.empty
         allCons = Map.unionsWith max $ map cons trs
-        toEqInst e | TCons "[]" [TCons t []] <- e = g t (\a -> "["<>a<>"]")
-                   | TCons "[]" [TCons "[]" [TCons t []]] <- e =
-                                g t (\c -> "[["<>c<>"]]")
-                   | TCons t [] <- e = g t id
-           where g t mod = Just ("<@Eq_"<>(mod t)<>"@>",
-                                GivenFun (GivenInst tra (eqInst (mod t)))
-                                $ TCons "Eq" [e])
-                            where tra = textToTy $ mod t
+        toEqInst e | Just rep <- genRep e,
+                     Just eqf <- g_eq rep = g rep eqf
+           where g rep eqf = Just ("<@Eq_"<>(T.pack $ show $ g_tr rep)<>"@>",
+                                   GivenFun (GivenInst (g_tr rep) eqf)
+                                   $ TCons "Eq" [e])
         toEqInst _ = Nothing
+        toEmptyLi e | Just rep <- genRep e = g rep
+                    | otherwise = Nothing
+           where g rep = Just ("[]_<["<> (T.pack $ show $ g_tr rep)<>"]>",
+                               extraFunc (g_empty_li rep))
+                    
 
         -- Needs template haskell for user-given instances.
         -- in core f: (Eq a => Eq [a])
@@ -111,47 +110,58 @@ sigGivens sigs = eqDef
                              $ TFun (TVar "a")
                              $ TFun (TVar "a")
                              $ TCons "Bool" []
-        consNames (t, n) | TCons "[]" [TCons a []] <- t = g a (\c -> "["<>c<>"]")
-                         | TCons "[]" [TCons "[]" [TCons a []]] <- t =
-                                g a (\c -> "[["<>c<>"]]")
-                         | TCons a [] <- t = g a id
-                         | otherwise = []
-           where g a mod = map ((\gf@(GivenFun gv _) -> (gvToName gv, gf)) .
-                               (\v -> GivenFun (GivenVar (textToTy $ mod a) v
-                                                         (getArb   $ mod a)) t)) [0..(n-1)]
 
-        textToTy :: Text -> TypeRep
-        textToTy = g_tr . genRep
-        getArb :: Text -> DynGen
-        getArb = g_arb . genRep
-        eqInst = g_eq . genRep
+        consNames (t, n) | Just r <- genRep t = g r
+                         | otherwise = []
+           where g rep = map ((\gf@(GivenFun gv _) -> (gvToName gv, gf)) .
+                              (\v -> GivenFun (GivenVar (g_tr rep) v
+                              (g_arb rep)) t)) [0..(n-1)]
 
         genRepFromProxy :: (Eq a, Typeable a, Arbitrary a) =>
                            Proxy a -> GeneratedInstance
         genRepFromProxy (Proxy :: Proxy a) = Gend {..}
           where g_tr = typeRep (Proxy :: Proxy a)
                 g_arb = DynGen (arbitrary :: Gen a)
-                g_eq = toDyn ((==) :: a -> a -> Bool)
+                g_eq = Just (toDyn ((==) :: a -> a -> Bool))
+                g_empty_li = toDyn ([] :: [a])
                 g_li_i = genRepFromProxy (Proxy :: Proxy [a])
 
-        genRep :: Text -> GeneratedInstance
-        genRep "A"        =  genRepFromProxy (Proxy :: Proxy A)
-        genRep "B"        =  genRepFromProxy (Proxy :: Proxy B)
-        genRep "C"        =  genRepFromProxy (Proxy :: Proxy C)
-        genRep "D"        =  genRepFromProxy (Proxy :: Proxy D)
-        genRep "Acc"      =  genRepFromProxy (Proxy :: Proxy Acc)
-        genRep "()"       =  genRepFromProxy (Proxy :: Proxy ())
-        genRep "Int"      =  genRepFromProxy (Proxy :: Proxy Int)
-        genRep "Bool"     =  genRepFromProxy (Proxy :: Proxy Bool)
-        genRep "Char"     =  genRepFromProxy (Proxy :: Proxy Char)
-        genRep "Integer"  =  genRepFromProxy (Proxy :: Proxy Integer)
-        genRep "Double"   =  genRepFromProxy (Proxy :: Proxy Double)
-        genRep "Float"    =  genRepFromProxy (Proxy :: Proxy Float)
-        genRep "Ordering" =  genRepFromProxy (Proxy :: Proxy Ordering)
-        genRep "Word"     =  genRepFromProxy (Proxy :: Proxy Word)
-        genRep t | '[':up <- T.unpack t, ']':pu <- reverse up =
-                    g_li_i $ genRep $ T.pack $ reverse pu
-        genRep x = error $ "Unknown type '" ++ (T.unpack x) ++ "'"
+        genRepFromProxyNoEq :: (Typeable a, Arbitrary a) =>
+                               Proxy a -> GeneratedInstance
+        genRepFromProxyNoEq (Proxy :: Proxy a) = Gend {..}
+          where g_tr = typeRep (Proxy :: Proxy a)
+                g_arb = DynGen (arbitrary :: Gen a)
+                g_empty_li = toDyn ([] :: [a])
+                g_eq = Nothing
+                g_li_i = genRepFromProxyNoEq (Proxy :: Proxy [a])
+
+
+        genRep :: TypeSkeleton -> Maybe GeneratedInstance
+        genRep (TCons "A"        []) = Just $ genRepFromProxy (Proxy :: Proxy A)
+        genRep (TCons "B"        []) = Just $ genRepFromProxy (Proxy :: Proxy B)
+        genRep (TCons "C"        []) = Just $ genRepFromProxy (Proxy :: Proxy C)
+        genRep (TCons "D"        []) = Just $ genRepFromProxy (Proxy :: Proxy D)
+        genRep (TCons "Acc"      []) = Just $ genRepFromProxy (Proxy :: Proxy Acc)
+        genRep (TCons "()"       []) = Just $ genRepFromProxy (Proxy :: Proxy ())
+        genRep (TCons "Int"      []) = Just $ genRepFromProxy (Proxy :: Proxy Int)
+        genRep (TCons "Bool"     []) = Just $ genRepFromProxy (Proxy :: Proxy Bool)
+        genRep (TCons "Char"     []) = Just $ genRepFromProxy (Proxy :: Proxy Char)
+        genRep (TCons "Integer"  []) = Just $ genRepFromProxy (Proxy :: Proxy Integer)
+        genRep (TCons "Double"   []) = Just $ genRepFromProxy (Proxy :: Proxy Double)
+        genRep (TCons "Float"    []) = Just $ genRepFromProxy (Proxy :: Proxy Float)
+        genRep (TCons "Ordering" []) = Just $ genRepFromProxy (Proxy :: Proxy Ordering)
+        genRep (TCons "Word"     []) = Just $ genRepFromProxy (Proxy :: Proxy Word)
+        genRep (TCons "[]" [ts]) = g_li_i <$> genRep ts
+        genRep (TFun (TCons "A" []) (TCons "B" []))
+            = Just $ genRepFromProxyNoEq (Proxy :: Proxy (A->B))
+        genRep (TFun _ _) = Nothing
+        -- Some special cases for HugeLists
+        genRep (TCons "(,)" [TCons "A" [], TCons "B" []]) = Just $ genRepFromProxy (Proxy :: Proxy (A,B))
+        genRep (TCons "(,)" [TCons "[]" [TCons "A" []], TCons "[]" [TCons "B" []]])
+            = Just $ genRepFromProxy (Proxy :: Proxy ([A],[B]))
+        genRep (TCons "(,)" [TCons "[]" [TCons "A" []], TCons "[]" [TCons "A" []]])
+            = Just $ genRepFromProxy (Proxy :: Proxy ([A],[A]))
+        genRep x = trace ("*** Warning: Could not generate instances for '" ++ (show x) ++ "', ignoring...") Nothing
 
 
 
@@ -254,24 +264,16 @@ instance Ord GivenInfo where
   compare (GivenVar {}) _ = GT
 
 
+
 gvToName :: GivenInfo -> Text
-gvToName (GivenVar tr i _) = nm<>ss<>sep<>trn<>r
-  where howNested tc | "[]" <- tyConName (typeRepTyCon tc),
-                       [tra] <- typeRepArgs tc
-                       = (1+) <$> howNested tra
-                     | otherwise = (tyConName $ typeRepTyCon tc, 0)
-        (tcn,hn) = howNested tr
-        ss = T.pack (replicate hn 's')
-        (nm,r) = if i < length varns
-                 then (T.pack [(varns !! i)], "")
-                 else ("x", "_" <> is)
-        sep = "::"
-        trn :: Text
+gvToName (GivenVar tr i _) = var<>is<>"_<"<>trn <>">"
+  where
         trn = T.pack (show tr)
-        is :: Text
         is = T.pack (show i)
-        varns :: String
-        varns = "xyzabcdefghijklmnopqrtuv"
+        var = case tyConName (typeRepTyCon tr) of
+                "[]" -> "xs"
+                "->" -> "f"
+                _ -> "x"
 gvToName _ = error "not a given var!"
 
 
@@ -355,33 +357,33 @@ traceShowIdLbl :: Show a => String -> a -> a
 -- traceShowIdLbl lbl a = (trace (lbl ++ show a) a)
 traceShowIdLbl _ a = a
 
+termVars :: Sig -> Term -> [(Text, GivenInfo)]
+termVars sig (Term (Symbol s) []) |
+    Just (GivenFun {given_info=v@(GivenVar _ _ _)}) <- sig Map.!? s = [(s,v)]
+termVars sig (Term _ args) = concatMap (termVars sig) args
 
--- We don't want to keep repeating the same laws
+-- note: after this the lookup in the sig won't fire!
+renameSymbols :: Map Text Text -> Term -> Term
+renameSymbols changes ttr@(Term (Symbol s) args)
+    | Just s' <- changes Map.!? s = Term (Symbol s') subv
+    | otherwise = Term (Symbol s) subv
+    where subv = map (renameSymbols changes) args
+
+
+-- We don't want to keep repeating the same laws,
+-- and we want to have nicer names for variables
 reduceVars :: Sig -> Term -> Term
 reduceVars sig term = simplified
-  where vars :: Term -> [GivenInfo]
-        vars (Term (Symbol s) []) |
-            Just (GivenFun {given_info=v@(GivenVar _ _ _)}) <- sig Map.!? s =
-                [v]
-        vars (Term _ args) = concatMap vars args
-        howMany :: Term -> [[GivenInfo]]
-        howMany = groupBy ((==) `on` (\(GivenVar tr _ _) -> tr)) . sort . nub . vars
+  where howMany :: Term -> [[GivenInfo]]
+        howMany = groupBy ((==) `on` (\(GivenVar tr _ _) -> tr)) 
+                  . sort . nub . map snd . termVars sig
         substs vs = catMaybes $ zipWith f vs [0..]
           where f v@(GivenVar tr i g) j = if i == j then Nothing
-                                          else Just (v,GivenVar tr j g)
-        changes :: Map GivenInfo GivenInfo 
+                                          else Just (gvToName v,
+                                                     gvToName $ GivenVar tr j g)
         changes = Map.unions $ map (Map.fromList . substs) $ howMany term
-        applRw :: Term -> Term
-        applRw ttr@(Term (Symbol s) [])
-           | Just (GivenFun {given_info=v@(GivenVar _ _ _)}) <- sig Map.!? s,
-             Just v' <- changes Map.!? v = Term (Symbol (gvToName v')) []
-           | otherwise = ttr
-        applRw (Term s args) = Term s (map applRw args)
-        simplified = applRw term
+        simplified = renameSymbols changes term
         
-
-
-                
 
 
 -- Note: should be flipped 

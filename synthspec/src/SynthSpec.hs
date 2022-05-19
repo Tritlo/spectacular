@@ -44,7 +44,12 @@ updateRewrites _ r = return r
 
 updRw :: Term -> Term -> Rewrite -> Rewrite
 updRw a b (Rewrite mp) =
-    let (sml,big) = if (termSize a) <= (termSize b) then (a,b) else (b,a)
+    let (sml,big) = if termSize a < termSize b
+                    then (a,b) else if termSize a == termSize b
+                                    then if length (show a) < length (show b)
+                                         then (a,b)
+                                         else (b,a)
+                                    else (b,a)
     in Rewrite (Map.insert big sml mp)
 
 applyRewrites :: Rewrite -> Node -> IO Node
@@ -57,8 +62,13 @@ termSize :: Term -> Int
 termSize (Term s []) = 1
 termSize (Term s args) = 1 + sum (map termSize args)
 
+-- if we find a rewrite from anything to a given var, it holds
+-- for all things of that type! i.e. if x == x ++ [],
+-- then we can rewrite all instances of (_ :: [A] ++ []) to (_::[A]) 
+-- best would probably be to apply this in the node.
+
 badRewrite :: Rewrite -> Term -> (Term, Maybe Rewrite)
-badRewrite rwr@(Rewrite mp) term@(Term s args@(_:_))
+badRewrite rwr@(Rewrite mp) term@(Term s args)
     | Just smllr <- mp Map.!? term = (smllr,Nothing)
     | (args',mb_rwrs) <- unzip $ map (badRewrite rwr) args,
       args' /= args =
@@ -70,7 +80,7 @@ badRewrite rwr@(Rewrite mp) term@(Term s args@(_:_))
             finalRwt = updRw term rwt $ fromMaybe rwr' rwrAfterRewrite
         in (rwt, Just finalRwt)
     | otherwise = (term, Nothing)
-badRewrite rwr term = (term, Nothing)
+--badRewrite rwr term = (term, Nothing)
 
 
             
@@ -150,13 +160,13 @@ synthSpec sigs =
                holds <- QC.isSuccess <$>
                           QC.quickCheckWithResult qc_args (dynProp termGen)
                if not holds then continue rwrts' nums terms
-               else do putStrLn ((show n <> ". ") <> T.unpack (pp term))
+               else do putStrLn ((show n <> ". ") <> T.unpack (pp $ term))
                        -- TODO: e-graph optimization (egg), queue-up updates
                        -- to the rewrites.
                        rwrts'' <- updateRewrites wip_rewritten rwrts'
                        continue rwrts'' ns terms
               where continue rwrts = go' (simplified `Set.insert` seen) rwrts lvl_nums
-                    skip = go' seen rwrts lvl_nums nums terms
+                    skip = go' seen rwrts' lvl_nums nums terms
                     -- wrt variable renaming
                     simplified = reduceVars complSig term
                     (wip_rewritten, rwrts') = (fromMaybe rwrts) <$>
