@@ -29,7 +29,8 @@ import qualified Data.Set as Set
 import qualified System.Environment as Env
 import qualified Text.Read as TR
 import Debug.Trace
-import Data.Maybe (fromMaybe, catMaybes)
+import Data.Maybe (fromMaybe, catMaybes, mapMaybe)
+import Data.Char (isAlphaNum)
 
 -- TODO: make this an e-graph or similar datastructure
 data Rewrite = Rewrite (Map Term Term) deriving (Show)
@@ -149,37 +150,72 @@ synthSpec sigs =
             -- print filtered_and_reduced 
             -- print rwrts
             rewritten <- applyRewrites rwrts filtered_and_reduced
-            let terms = map prettyTerm $ getAllTerms rewritten
-            go' seen rwrts lvl_nums nums terms 
-           go' seen rwrts lvl_nums nums@(n:ns) (term:terms)
+            go' seen rwrts lvl_nums nums $ getAllTerms rewritten
+           go' seen rwrts lvl_nums nums@(n:ns) (full_term:terms)
              | simplified `Set.member` seen = skip
              | isId wip_rewritten = skip
              | otherwise = do
+               --putStrLn $ T.unpack ("Testing: " <> pp term)
                -- putStrLn $ T.unpack ("Testing: " <> pp term)
                let termGen = termToGen complSig Map.empty wip_rewritten
                -- (fmap (flip Dyn.fromDyn False) $ QC.generate termGen) >>= print
                holds <- QC.isSuccess <$>
                           QC.quickCheckWithResult qc_args (dynProp termGen)
                if not holds then continue rwrts' nums terms
-               else do putStrLn ((show n <> ". ") <> T.unpack (pp $ term))
+               else do putStrLn ((show n <> ". ") <> (ppNpTerm $ np_term))
+                       --putStrLn $ (showNpTerm np_term)
                        -- TODO: e-graph optimization (egg), queue-up updates
                        -- to the rewrites.
                        rwrts'' <- updateRewrites wip_rewritten rwrts'
                        continue rwrts'' ns terms
-              where continue rwrts = go' (simplified `Set.insert` seen) rwrts lvl_nums
+              where np_term = npTerm full_term
+                    continue rwrts = go' (simplified `Set.insert` seen) rwrts lvl_nums
                     skip = go' seen rwrts' lvl_nums nums terms
                     -- wrt variable renaming
-                    simplified = simplifyVars complSig term
+                    simplified = simplifyVars complSig $ npTerm full_term
                     -- we're probably missing out on some rewrites due to
                     -- us operating on the flipped term
                     (wip_rewritten, rwrts') = (fromMaybe rwrts) <$>
-                                                badRewrite rwrts (flipTerm simplified)
+                                                badRewrite rwrts simplified
        args <- Env.getArgs
        let size = case args of
                     arg:_ | Just n <- TR.readMaybe arg -> n
                     _ -> 7
        go size
-                   
+
+npTerm :: Term -> Term
+npTerm (Term "filter" [_, 
+                      Term "app" [_,
+                                  _,
+                                  Term "app" [_,
+                                              _,
+                                              Term "app" [_,
+                                                          _,
+                                                          Term "(==)" _ ,
+                                                          Term eqi _],
+                                              lhs],
+                                  rhs ]])
+            = Term "(==)" [Term eqi [], npTerm lhs, npTerm rhs]
+npTerm (Term "app" [t,_,a,v]) =  (Term "app" $ [t, npTerm a, npTerm v])
+npTerm t = t
+
+showNpTerm :: Term -> String
+showNpTerm = ppTerm' 0 
+ where ppTerm' n (Term "app" ns) = intercalate "\n" $ ((replicate n ' ' ++ "app" ):(map ((replicate (n+2) ' ' ++) . ppTerm' (n+2)) ns))
+       ppTerm' 0 (Term "(==)" [_, lhs, rhs]) = intercalate "\n"  [ppTerm' 0 lhs, ppTerm' 0 rhs]
+       ppTerm' _ t = show t
+
+ppNpTerm :: Term -> String
+ppNpTerm (Term "(==)" [_, lhs, rhs]) = ppTerm' False lhs <> " == " <> ppTerm' False rhs
+  where 
+        ppTerm' True (Term "app" [_,f,v]) = "(" <> ppTerm' True f <> " " <> ppTerm' True v <> ")"
+        ppTerm' _ (Term "app" [_,f,v]) = ppTerm' True f <> " " <> ppTerm' True v
+        ppTerm' True (Term (Symbol t) _) = parIfReq (T.unpack t)
+        ppTerm' _ (Term (Symbol t) _) = T.unpack t
+        parIfReq s@(c:_) | c /= '(', c /= '[', not (isAlphaNum c) = "("<>s<>")"
+        parIfReq s = s
+        
+
 -- TODO:
 -- 2. knuth-bendix completion algorithm (we're almost there)
 --    what to do when the size is the same? We want only one way to reduce a term

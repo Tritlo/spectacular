@@ -336,10 +336,6 @@ extra name fun = Map.singleton name $ (extraFunc $ toDyn fun)
 skeletonToTypeRep :: TypeSkeleton -> Maybe TypeRep
 skeletonToTypeRep _ = Nothing
 
-flipTerm :: Term -> Term
-flipTerm (Term "app" ((Term s sargs):rest)) = flipTerm (Term s $ map flipTerm (sargs ++ rest))
-flipTerm t = t
-
 eqLi :: (a -> a -> Bool) -> [a] -> [a] -> Bool
 eqLi f [] [] = True
 eqLi f (a:as) (b:bs) = if f a b then eqLi f as bs else False
@@ -360,9 +356,11 @@ getVars sig (Term (Symbol sym) args) = do
         _ -> return vv 
 
 termVars :: Sig -> Term -> [(Text, GivenInfo)]
-termVars sig (Term (Symbol s) []) |
-    Just (GivenFun {given_info=v@(GivenVar _ _ _)}) <- sig Map.!? s = [(s,v)]
-termVars sig (Term _ args) = concatMap (termVars sig) args
+termVars sig (Term "app" [_,f,v]) = concatMap (termVars sig) [f,v]
+termVars sig (Term "(==)" [_,lhs,rhs]) = concatMap (termVars sig) [lhs,rhs]
+termVars sig (Term (Symbol s) args)
+    | Just (GivenFun {given_info=v@(GivenVar _ _ _)}) <- sig Map.!? s = [(s,v)]
+    | otherwise = []
 
 -- note: after this the lookup in the sig won't fire!
 renameSymbols :: Map Text Text -> Term -> Term
@@ -388,10 +386,11 @@ simplifyVars sig term = simplified
         fewer_vars = Map.unions $ map (Map.fromList . substs) $ howMany term
         with_fewer_vars :: Term
         with_fewer_vars = renameSymbols fewer_vars term
-        whatOrder :: Term -> [[GivenInfo]]
-        whatOrder = groupBy ((==) `on` gv_tr) . sortBy (compare `on` gv_tr) . tvs
         -- We want to avoid things where just the order of the variables 
         -- is changed.
+        -- TODO: does this help? Is it safe/
+        whatOrder :: Term -> [[GivenInfo]]
+        whatOrder = groupBy ((==) `on` gv_tr) . sortBy (compare `on` gv_tr) . tvs
         subst_order vs =  zipWith f vs [0..]
           where f v@(GivenVar tr i g) j = (gvToName v, gvToName $ GivenVar tr j g)
         reordered_vars :: Map Text Text
@@ -402,7 +401,7 @@ simplifyVars sig term = simplified
         
 
 
--- Note: should be flipped 
+-- Note: should be npTermed
 termToGen :: Sig -> VarVals -> Term -> Gen Dynamic
 termToGen sig init_vv (Term "(==)" [eq_i, a_g, b_g])
     | a_g == b_g = return (toDyn True) -- short-circuit the trivial case
@@ -416,7 +415,11 @@ termToGen sig init_vv (Term "(==)" [eq_i, a_g, b_g])
        a  <- termToGen sig vv a_g
        b  <- termToGen sig vv b_g
        return $ fromJust $ dynApply (fromJust $ dynApply eq a) b
-termToGen sig vv (Term (Symbol sym) []) = 
+termToGen sig vv (Term "app" [_,f_g,v_g]) = do
+  f <- termToGen sig vv f_g
+  v <- termToGen sig vv v_g
+  return $ fromJust (dynApply f v)
+termToGen sig vv (Term (Symbol sym) _) = do
   case sig Map.!? sym of 
    Just (GivenFun {given_info = GivenVar _ _ _}) ->
         case vv Map.!? sym of
@@ -428,10 +431,6 @@ termToGen sig vv (Term (Symbol sym) []) =
    Just gf@(GenFunc {}) -> return $ sfFunc gf
    Just x -> error $ show x
    Nothing -> error "not found!"
-termToGen sig vv (Term (Symbol sym) args) =
- do  symGen <- termToGen sig vv (Term (Symbol sym) [])
-     argGens <- mapM (termToGen sig vv) args
-     return $ foldl (\f v -> fromJust (dynApply f v)) symGen  argGens
    
 
 dynProp :: Gen Dynamic -> Property
