@@ -169,6 +169,8 @@ synthSpec sigs =
                     skip = go' seen rwrts' lvl_nums nums terms
                     -- wrt variable renaming
                     simplified = reduceVars complSig term
+                    -- we're probably missing out on some rewrites due to
+                    -- us operating on the flipped term
                     (wip_rewritten, rwrts') = (fromMaybe rwrts) <$>
                                                 badRewrite rwrts (flipTerm simplified)
        args <- Env.getArgs
