@@ -41,6 +41,7 @@ import Debug.Trace
 import qualified Type.Reflection as TR
 
 import qualified Data.Monoid as M
+import qualified Test.QuickCheck as QC
 
 newtype A = A M.Any deriving (Typeable, Eq, Show, Ord)
 newtype B = B M.Any deriving (Typeable, Eq, Show, Ord)
@@ -122,9 +123,13 @@ sigGivens sigs = eqDef
         genRepFromProxy (Proxy :: Proxy a) = Gend {..}
           where g_tr = typeRep (Proxy :: Proxy a)
                 g_arb = DynGen (arbitrary :: Gen a)
-                g_eq = Just (toDyn ((==) :: a -> a -> Bool))
+                g_eq = Just (toDyn wrappedEq)
+                --g_eq = Just (toDyn ((==) :: a -> a -> Bool))
                 g_empty_li = toDyn ([] :: [a])
                 g_li_i = genRepFromProxy (Proxy :: Proxy [a])
+                -- TODO: do something fancier here.
+                wrappedEq :: a -> a -> Property
+                wrappedEq a b = property (((==) a b))
 
         genRepFromProxyNoEq :: (Typeable a, Arbitrary a) =>
                                Proxy a -> GeneratedInstance
@@ -343,7 +348,6 @@ eqLi _ _ _ = False
 type VarVals = Map Text Dynamic
 
 
-
 getVars :: Sig -> Term -> Gen VarVals
 getVars sig (Term (Symbol sym) args) = do
     vv <- Map.unions <$> (mapM (getVars sig) args)
@@ -352,10 +356,6 @@ getVars sig (Term (Symbol sym) args) = do
             v <- toDyn <$> g
             return (vv <> (Map.singleton sym v))
         _ -> return vv 
-
-traceShowIdLbl :: Show a => String -> a -> a
--- traceShowIdLbl lbl a = (trace (lbl ++ show a) a)
-traceShowIdLbl _ a = a
 
 termVars :: Sig -> Term -> [(Text, GivenInfo)]
 termVars sig (Term (Symbol s) []) |
@@ -391,15 +391,14 @@ termToGen :: Sig -> VarVals -> Term -> Gen Dynamic
 termToGen sig init_vv (Term "(==)" [eq_i, a_g, b_g])
     | a_g == b_g = return (toDyn True) -- short-circuit the trivial case
     | otherwise =
-    do eq <- fmap (traceShowIdLbl "eq:") $ 
-                termToGen sig Map.empty (traceShowIdLbl "eq_i:" eq_i)
+    do eq <- termToGen sig Map.empty eq_i
        vv <- if Map.null init_vv
-             then do vva <- traceShowIdLbl "vva:" <$> getVars sig a_g
-                     vvb <- traceShowIdLbl "vva:" <$> getVars sig b_g
+             then do vva <- getVars sig a_g
+                     vvb <- getVars sig b_g
                      return (vva <> vvb)
              else return init_vv
-       a  <- fmap (traceShowIdLbl "a:")  $ termToGen sig vv (traceShowIdLbl "a_g:" a_g)
-       b  <- fmap (traceShowIdLbl "b:")  $ termToGen sig vv (traceShowIdLbl "b_g:" b_g)
+       a  <- termToGen sig vv a_g
+       b  <- termToGen sig vv b_g
        return $ fromJust $ dynApply (fromJust $ dynApply eq a) b
 termToGen sig vv (Term (Symbol sym) []) = 
   case sig Map.!? sym of 
@@ -414,14 +413,13 @@ termToGen sig vv (Term (Symbol sym) []) =
    Just x -> error $ show x
    Nothing -> error "not found!"
 termToGen sig vv (Term (Symbol sym) args) =
- do  symGen <- fmap (traceShowIdLbl "symGen: ") $ termToGen sig vv (Term (Symbol sym) [])
+ do  symGen <- termToGen sig vv (Term (Symbol sym) [])
      argGens <- mapM (termToGen sig vv) args
-     return $ foldl (\f v -> fromJust (dynApply f v)) symGen $
-                traceShowIdLbl "argGens: " argGens
+     return $ foldl (\f v -> fromJust (dynApply f v)) symGen  argGens
    
 
 dynProp :: Gen Dynamic -> Property
-dynProp gen = QC.forAll gen (flip fromDyn False)
+dynProp gen = QC.forAll gen (flip fromDyn (property False))
 
 -- TODO: can we kill a branch once a rewriteable term is detected?
 --

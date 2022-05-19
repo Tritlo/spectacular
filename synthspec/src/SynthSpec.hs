@@ -127,7 +127,7 @@ synthSpec sigs =
            --   map prettyTerm $
            --     concatMap (getAllTerms . refold . reduceFully . flip filterType resNode )
            --               (rtkUpToKAtLeast1 argNodes scope_comps anyArg True 8)
-       putStrLn "Laws"
+       putStrLn "Haskell Laws according to Haskell's (==):"
        putStrLn "---------------------------------"
        let qc_args = QC.stdArgs { QC.chatty = False,
                                   QC.maxShrinks = 0,
@@ -157,6 +157,7 @@ synthSpec sigs =
              | otherwise = do
                -- putStrLn $ T.unpack ("Testing: " <> pp term)
                let termGen = termToGen complSig Map.empty wip_rewritten
+               -- (fmap (flip Dyn.fromDyn False) $ QC.generate termGen) >>= print
                holds <- QC.isSuccess <$>
                           QC.quickCheckWithResult qc_args (dynProp termGen)
                if not holds then continue rwrts' nums terms
@@ -187,4 +188,10 @@ synthSpec sigs =
 --    might not be stable, but we *don't need confluence*. Term indexing: 
 --    have a hashtable of the root node. Makes it a lot faster.
 --
+-- Check for equality in the presence of non-total functions, e.g.
+-- reverse (reverse xs) = xs. Allow an option to add more information for this,
+-- i.e. reverse (reverse xs) = traverse xs, but not xs.
+-- functions should also behave the same on the undefined list.
 --
+-- i.e. False && a = False
+-- but  a && False = seq a False
