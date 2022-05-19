@@ -33,31 +33,55 @@ import Data.Maybe (fromMaybe, catMaybes, mapMaybe)
 import Data.Char (isAlphaNum)
 
 -- TODO: make this an e-graph or similar datastructure
-data Rewrite = Rewrite (Map Term Term) deriving (Show)
+data Rewrite = Rewrite [(Term, Term)] (Map Term Term) deriving (Show)
 
 rwrMap :: Rewrite -> Map Term Term
-rwrMap (Rewrite r) = r
+rwrMap (Rewrite _ r) = r
 
-updateRewrites :: Term -> Rewrite -> IO Rewrite
-updateRewrites (Term "(==)" [_,a,b]) rw = 
+updateRewrites :: Either Term (Term,Term) -> Rewrite -> IO Rewrite
+updateRewrites (Left (Term "(==)" [_,a,b])) rw = 
     return $ updRw a b rw
+updateRewrites (Right hole_rule) (Rewrite holeRules mp) =
+    return (Rewrite (hole_rule:holeRules) mp)
 updateRewrites _ r = return r
 
+-- [Note: Hole-rewrites]
+perforate :: Term -> Term -> Term
+perforate v t@(Term s args) | v == t = Term "_" args
+                            | otherwise = Term s $ map (perforate v) args
+fillHole :: Term -> Term -> Term
+fillHole fill (Term "_" args) = fill
+fillHole fill (Term s args) = Term s (map (fillHole fill) args)
+
+-- TODO: probably a lot better way to do his
+matchHole :: (Term, Term) -> Term -> Term
+matchHole rule@(typ,holed) term@(Term s args) =
+    case filled Map.!? term of
+        Just fill -> fill
+        -- We could probably reuse the filleds but eh.
+        _ -> Term s (map (matchHole rule) args)
+  where getOfType :: Term -> Term -> [Term]
+        getOfType typ t@(Term _ (tts:rest)) | typ == tts = (t:(concatMap (getOfType typ) rest))
+                                            | otherwise = concatMap (getOfType typ) rest
+        getOfType _ _ = []
+        filled = Map.fromList $ map (\fill -> (fillHole fill holed, fill))
+                              $ getOfType typ term
+
 updRw :: Term -> Term -> Rewrite -> Rewrite
-updRw a b (Rewrite mp) =
+updRw a b (Rewrite hole_rules mp) =
     let (sml,big) = if termSize a < termSize b
                     then (a,b) else if termSize a == termSize b
                                     then if length (show a) < length (show b)
                                          then (a,b)
                                          else (b,a)
                                     else (b,a)
-    in Rewrite (Map.insert big sml mp)
+    in Rewrite hole_rules (Map.insert big sml mp)
 
 applyRewrites :: Rewrite -> Node -> IO Node
 applyRewrites r n = return n
 
 initRewrites :: IO Rewrite
-initRewrites = return $ Rewrite Map.empty
+initRewrites = return $ Rewrite [] Map.empty
 
 termSize :: Term -> Int
 termSize (Term s []) = 1
@@ -69,18 +93,19 @@ termSize (Term s args) = 1 + sum (map termSize args)
 -- best would probably be to apply this in the node.
 
 badRewrite :: Rewrite -> Term -> (Term, Maybe Rewrite)
-badRewrite rwr@(Rewrite mp) term@(Term s args)
+badRewrite rwr@(Rewrite hole_rules mp) orig_term
     | Just smllr <- mp Map.!? term = (smllr,Nothing)
     | (args',mb_rwrs) <- unzip $ map (badRewrite rwr) args,
       args' /= args =
         let rwr' = case catMaybes mb_rwrs of
                      [] -> rwr
-                     rs -> Rewrite (Map.unions $ map rwrMap rs)
+                     rs -> Rewrite hole_rules (Map.unions $ map rwrMap rs)
             t' = Term s args'
             (rwt, rwrAfterRewrite) = badRewrite rwr' t'
             finalRwt = updRw term rwt $ fromMaybe rwr' rwrAfterRewrite
         in (rwt, Just finalRwt)
     | otherwise = (term, Nothing)
+  where term@(Term s args) = foldr matchHole orig_term hole_rules
 --badRewrite rwr term = (term, Nothing)
 
 
@@ -163,10 +188,14 @@ synthSpec sigs =
                           QC.quickCheckWithResult qc_args (dynProp termGen)
                if not holds then continue rwrts' nums terms
                else do putStrLn ((show n <> ". ") <> (ppNpTerm $ np_term))
-                       --putStrLn $ (showNpTerm np_term)
-                       -- TODO: e-graph optimization (egg), queue-up updates
-                       -- to the rewrites.
-                       rwrts'' <- updateRewrites wip_rewritten rwrts'
+                       let (Term "(==)" [_,lhs@(Term (Symbol lhss) (lht:_)),rhs]) = np_term
+                       -- Find hole-rewrites
+                       rwrts'' <- case complSig Map.!? lhss of
+                                    Just (GivenFun {given_info = GivenVar {}}) -> do
+                                        let holey = perforate lhs rhs
+                                        putStrLn $ ppNpTerm $ holey
+                                        updateRewrites (Right (lht, holey)) rwrts'
+                                    _ -> updateRewrites (Left wip_rewritten) rwrts'
                        continue rwrts'' ns terms
               where np_term = npTerm full_term
                     continue rwrts = go' (simplified `Set.insert` seen) rwrts lvl_nums
@@ -206,7 +235,8 @@ showNpTerm = ppTerm' 0
        ppTerm' _ t = show t
 
 ppNpTerm :: Term -> String
-ppNpTerm (Term "(==)" [_, lhs, rhs]) = ppTerm' False lhs <> " == " <> ppTerm' False rhs
+ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> ppTerm' False rhs
+           | otherwise = ppTerm' False t
   where 
         ppTerm' True (Term "app" [_,f,v]) = "(" <> ppTerm' True f <> " " <> ppTerm' True v <> ")"
         ppTerm' _ (Term "app" [_,f,v]) = ppTerm' True f <> " " <> ppTerm' True v
