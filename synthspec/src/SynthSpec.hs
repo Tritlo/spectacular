@@ -46,26 +46,26 @@ updateRewrites (Right hole_rule) (Rewrite holeRules mp) =
 updateRewrites _ r = return r
 
 -- [Note: Hole-rewrites]
-perforate :: Term -> Term -> Term
-perforate v t@(Term s args) | v == t = Term "_" args
-                            | otherwise = Term s $ map (perforate v) args
-fillHole :: Term -> Term -> Term
-fillHole fill (Term "_" args) = fill
-fillHole fill (Term s args) = Term s (map (fillHole fill) args)
+-- perforate :: Term -> Term -> Term
+-- perforate v t@(Term s args) | v == t = Term "_" args
+--                             | otherwise = Term s $ map (perforate v) args
+-- fillHole :: Term -> Term -> Term
+-- fillHole fill (Term "_" args) = fill
+-- fillHole fill (Term s args) = Term s (map (fillHole fill) args)
 
--- TODO: probably a lot better way to do his
-matchHole :: (Term, Term) -> Term -> Term
-matchHole rule@(typ,holed) term@(Term s args) =
-    case filled Map.!? term of
-        Just fill -> fill
-        -- We could probably reuse the filleds but eh.
-        _ -> Term s (map (matchHole rule) args)
-  where getOfType :: Term -> Term -> [Term]
-        getOfType typ t@(Term _ (tts:rest)) | typ == tts = (t:(concatMap (getOfType typ) rest))
-                                            | otherwise = concatMap (getOfType typ) rest
-        getOfType _ _ = []
-        filled = Map.fromList $ map (\fill -> (fillHole fill holed, fill))
-                              $ getOfType typ term
+-- -- TODO: probably a lot better way to do his
+-- matchHole :: (Term, Term) -> Term -> Term
+-- matchHole rule@(typ,holed) term@(Term s args) =
+--     case filled Map.!? term of
+--         Just fill -> fill
+--         -- We could probably reuse the filleds but eh.
+--         _ -> Term s (map (matchHole rule) args)
+--   where getOfType :: Term -> Term -> [Term]
+--         getOfType typ t@(Term _ (tts:rest)) | typ == tts = (t:(concatMap (getOfType typ) rest))
+--                                             | otherwise = concatMap (getOfType typ) rest
+--         getOfType _ _ = []
+--         filled = Map.fromList $ map (\fill -> (fillHole fill holed, fill))
+--                               $ getOfType typ term
 
 updRw :: Term -> Term -> Rewrite -> Rewrite
 updRw a b (Rewrite hole_rules mp) =
@@ -104,8 +104,8 @@ badRewrite rwr@(Rewrite hole_rules mp) orig_term
             (rwt, rwrAfterRewrite) = badRewrite rwr' t'
             finalRwt = updRw term rwt $ fromMaybe rwr' rwrAfterRewrite
         in (runMatch rwt, Just finalRwt)
-    | otherwise = (runMatch $ term, Nothing)
-  where runMatch = flip (foldr matchHole) hole_rules
+    | otherwise = (term, Nothing)
+  where runMatch = id -- flip (foldr matchHole) hole_rules
         term@(Term s args) = runMatch orig_term
 --badRewrite rwr term = (term, Nothing)
 
@@ -193,9 +193,10 @@ synthSpec sigs =
                        -- Find hole-rewrites
                        rwrts'' <- case complSig Map.!? lhss of
                                     Just (GivenFun {given_info = GivenVar {}}) -> do
-                                        let holey = perforate lhs rhs
+                                        -- let holey = perforate lhs rhs
                                         -- putStrLn $ ppNpTerm $ holey
-                                        updateRewrites (Right (lht, holey)) rwrts'
+                                        -- updateRewrites (Right (lht, holey)) rwrts'
+                                        updateRewrites (Left wip_rewritten) rwrts'
                                     _ -> updateRewrites (Left wip_rewritten) rwrts'
                        continue rwrts'' ns terms
               where np_term = npTerm full_term
@@ -257,7 +258,11 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
 --    something that is idempotent! Same with e.g. ((==) x0_A) (head (cons x0_A) xs0_[A]),
 --    it will always hold for any value of that *type*, (so e.g. 
 --    ((==) xs0_[A]) (((++) []) xs0_[A]) means that
---    ((==) (concat xss0_[[A]]) (((++) []) (concat xss0_[[A]])) etc etc.
+--    ((==) (concat xss0_[[A]]) (((++) []) (concat xss0_[[A]])) etc etc..
+--
+--    (See [Note Hole-rewrite]. We also need to capture subsumption i.e.)
+--    ((==) x) (cons x (xs)) implies it for all xs, so anything that's there
+--    can be replaced.
 --
 --
 -- Check for equality in the presence of non-total functions, e.g.
