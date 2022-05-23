@@ -55,7 +55,16 @@ updateEcta rwr@(Rewrite _ rw_mp)
           , any_arg = Node any_args} = return $ StEcta{..}
   where any_arg = Node any_args
 updateEcta _ stecta = return $ stecta
-        
+
+
+hasSmallerRewrite :: Rewrite -> Term -> Bool
+hasSmallerRewrite rw@(Rewrite _ rw_mp) t@(Term _ args) = 
+ case rw_mp Map.!? t of
+   Just r -> termSize t < termSize r
+   _ -> any (hasSmallerRewrite rw) args
+
+-- [Note: re-writes]: We don't need to do the re-write if there is a smaller
+-- version, because that will already have been seen.
 
 -- [Note: Hole-rewrites]
 -- perforate :: Term -> Term -> Term
@@ -197,16 +206,19 @@ synthSpec sigs =
            go n = do rwrts <- initRewrites
                      let stecta = StEcta {scope_comps = scope_comps,
                                           any_arg = anyArg}
-                     go' Set.empty rwrts stecta [0.. n] [1..] []
-           go' _ rwrts _ [] _ [] = do
+                     go' Set.empty rwrts stecta [0.. n] 0 [1..] []
+           go' _ rwrts _ [] sofar _ [] = do
+             putStrLn $ "Done! " ++ show sofar ++ " terms examined."
              when (not (null (rwrMap rwrts))) $ do
                putStrLn "Final rewrites:"
                putStrLn "---------------"
                mapM_ (\(k,v) -> putStrLn ((ppNpTerm k) ++ " ==> " ++ (ppNpTerm v)))
                      (Map.assocs (rwrMap rwrts))
                putStrLn "---------------"
+             reportStats
              return ()
-           go' seen rwrts stecta (lvl_num:lvl_nums) nums []  = do
+           go' seen rwrts stecta (lvl_num:lvl_nums) sofar nums []  = do
+            putStrLn (show sofar ++ " terms examined so far")
             putStrLn ("Looking for exprs with " ++ show lvl_num ++ " terms...")
             -- If we find any rewrites for the scope, we apply them here.
             when (not (null (rwrMap rwrts))) $ do
@@ -219,26 +231,34 @@ synthSpec sigs =
             let StEcta {..} = stecta'
                 nextNode = union $ tk scope_comps any_arg True lvl_num
                 -- TODO: where to best do the rewrites?
-                filtered_and_reduced = refold $ reduceFully $ filterType nextNode resNode
+            filtered_and_reduced <- fmap refold <$> collectStats $ 
+                reduceFullyAndLog $ filterType nextNode resNode
+
+                -- filtered_and_reduced = refold $ reduceFully $ filterType nextNode resNode
             -- print filtered_and_reduced 
             -- print rwrts
             rewritten <- applyRewrites rwrts filtered_and_reduced
-            go' seen rwrts stecta' lvl_nums nums $ getAllTerms rewritten
-           go' seen rwrts stecta lvl_nums nums@(n:ns) (full_term:terms)
+            go' seen rwrts stecta' lvl_nums sofar nums $ getAllTerms rewritten
+           go' seen rwrts stecta lvl_nums sofar nums@(n:ns) (full_term:terms)
+              -- if there is a possible re-write that's *smaller*, then we can
+              -- skip right away, since we'll already have tested that one.
+             | hasSmallerRewrite rwrts simplified = skip 
              | simplified `Set.member` seen = skip
              | isId wip_rewritten = skip
              | otherwise = do
+                
                --putStrLn $ T.unpack ("Testing: " <> pp term)
                -- putStrLn $ T.unpack ("Testing: " <> pp term)
                let termGen = termToGen complSig Map.empty wip_rewritten
                -- (fmap (flip Dyn.fromDyn False) $ QC.generate termGen) >>= print
-               holds <- QC.isSuccess <$>
+               holds <- collectStats $ 
+                         QC.isSuccess <$>
                           QC.quickCheckWithResult qc_args (dynProp termGen)
                if not holds then continue rwrts' nums terms
                else do putStrLn ((show n <> ". ") <> (ppNpTerm $ np_term))
                        let (Term "(==)" [_,lhs@(Term (Symbol lhss) (lht:_)),rhs]) = np_term
                        -- Find hole-rewrites
-                       rwrts'' <- case complSig Map.!? lhss of
+                       rwrts'' <- collectStats $ case complSig Map.!? lhss of
                                     Just (GivenFun {given_info = GivenVar {}}) -> do
                                         -- let holey = perforate lhs rhs
                                         -- putStrLn $ ppNpTerm $ holey
@@ -247,8 +267,8 @@ synthSpec sigs =
                                     _ -> updateRewrites (Left wip_rewritten) rwrts'
                        continue rwrts'' ns terms
               where np_term = npTerm full_term
-                    continue rwrts = go' (simplified `Set.insert` seen) rwrts stecta lvl_nums
-                    skip = go' seen rwrts' stecta lvl_nums nums terms
+                    continue rwrts = go' (simplified `Set.insert` seen) rwrts stecta lvl_nums (sofar +1)
+                    skip = go' seen rwrts' stecta lvl_nums (sofar + 1) nums terms
                     -- wrt variable renaming
                     simplified = simplifyVars complSig $ npTerm full_term
                     -- we're probably missing out on some rewrites due to
@@ -311,6 +331,8 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
 --    ((==) x) (cons x (xs)) implies it for all xs, so anything that's there
 --    can be replaced.
 -- 4. Look at DbOpt file for examples of how we can apply rewrites directly.
+-- 5. All of the optimizations here are useless. Just GENERATING the terms
+--    takes almost all of the time, so we need to intervene before that.
 --
 --
 -- Check for equality in the presence of non-total functions, e.g.
@@ -320,3 +342,5 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
 --
 -- i.e. False && a = False
 -- but  a && False = seq a False
+--
+--

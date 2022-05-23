@@ -21,6 +21,7 @@ common deps
                  text,
                  containers,
                  compact-coupled-terms,
+                 time,
                  QuickCheck
 
 

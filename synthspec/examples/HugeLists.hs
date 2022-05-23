@@ -7,7 +7,10 @@ import Control.Monad
 import SynthSpec
 
 usort :: [Int] -> [Int]
-usort = sort
+usort [] = []
+usort (a:as) = usort (filter (<= a) as) 
+            ++ [a]
+            ++ usort (filter (> a) as)
 
 main = synthSpec [
   con "length" (length :: [A] -> Int),

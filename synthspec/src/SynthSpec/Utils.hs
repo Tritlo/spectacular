@@ -35,6 +35,14 @@ import Data.Tuple (swap)
 import Data.Containers.ListUtils (nubOrd)
 import Data.List (subsequences)
 
+import Data.Time.Clock (diffUTCTime, getCurrentTime)
+import Control.Monad.IO.Class (MonadIO (..))
+import qualified GHC.Stack as GHS
+import Text.Printf (printf)
+import System.CPUTime (getCPUTime)
+import Control.Monad (when)
+
+
  -- The old "global variable" trick, as we are creating new type variables
  -- from scratch, but we want all 'a's to refer to the same variabel, etc.
 tyVarMap :: IORef (Map Text TyVar)
@@ -248,3 +256,64 @@ mtypeToFta (TVar v) =
 mtypeToFta (TFun  t1    t2      ) = arrowType (mtypeToFta t1) (mtypeToFta t2)
 mtypeToFta (TCons "Fun" [t1, t2]) = arrowType (mtypeToFta t1) (mtypeToFta t2)
 mtypeToFta (TCons s     ts      ) = mkDatatype s (map mtypeToFta ts)
+
+
+
+
+
+-- Some stats:
+--
+--
+-- | Stopwatch for a given function, measures the time taken by a given act.
+time :: MonadIO m => m a -> m ((Integer, Integer), a)
+time act = do
+  wallTimeStart <- liftIO getCurrentTime
+  start <- liftIO getCPUTime
+  r <- act
+  done <- liftIO getCPUTime
+  wallTimeEnd <- liftIO getCurrentTime
+  return ((done - start, round (diffUTCTime wallTimeEnd wallTimeStart * 1e12)), r)
+
+statsRef :: IORef (Map.Map (String, Int) (Integer, Integer))
+{-# NOINLINE statsRef #-}
+statsRef = unsafePerformIO $ newIORef Map.empty
+
+
+
+collectStats :: (MonadIO m, HasCallStack) => m a -> m a
+collectStats a = do
+  (t, r) <- time a
+  let ((_, GHS.SrcLoc {..}) : _) = GHS.getCallStack GHS.callStack
+  let inF (a1, b1) (a2, b2) = (a1 + a2, b1 + b2)
+  liftIO $ modifyIORef' statsRef (Map.insertWith inF (srcLocFile, srcLocStartLine) t)
+  -- We don't want to flood the terminal with output
+  -- GHS.withFrozenCallStack $ liftIO $ putStrLn (showTime t)
+  return r
+
+resetStats :: MonadIO m => m ()
+resetStats = liftIO $ writeIORef statsRef Map.empty
+
+getStats :: MonadIO m => m [String]
+getStats =
+  liftIO $
+    let pp ((f, l), t) = f ++ ":" ++ show l ++ " " ++ showTime t
+     in map pp . Map.toList <$> readIORef statsRef
+
+reportStats :: MonadIO m => m ()
+reportStats = liftIO $ do
+  putStrLn "SUMMARY"
+  getStats >>= mapM_ putStrLn 
+
+-- | Transforms time given in ns (as measured by "time") into a string
+showTime :: (Integer, Integer) -> String
+showTime (cpu_time, wall_time) =
+  ("CPU " ++ showTime cpu_time) ++ " WALL " ++ showTime wall_time
+  where
+    msOrS res =
+      if res > 1000
+        then printf "%.2f" ((fromIntegral res * 1e-3) :: Double) ++ "s"
+        else show res ++ "ms"
+    showTime time_w = msOrS res
+      where
+        res :: Integer
+        res = floor $ fromIntegral time_w * (1e-9 :: Double)
