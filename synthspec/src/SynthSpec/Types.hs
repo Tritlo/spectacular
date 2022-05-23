@@ -69,8 +69,8 @@ sigGivens :: Sig -> Sig
 sigGivens sigs = eqDef
                  -- <> eqLaws
                  <> Map.fromList (mapMaybe toEqInst (Map.keys allCons))
-                 <> Map.fromList (concatMap consNames (Map.assocs allCons))
                  <> Map.fromList (mapMaybe toEmptyLi (Map.keys allCons))
+                 <> Map.fromList (concatMap consNames (Map.assocs allCons))
   where trs = map sfTypeRep $ Map.elems sigs
         -- we specialcase lists
         --cons t@(TCons "[]" r) = Map.unionsWith (+) $ map cons r

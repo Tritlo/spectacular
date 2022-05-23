@@ -1,5 +1,5 @@
 {-# OPTIONS -fno-max-valid-hole-fits #-}
-{-# LANGUAGE OverloadedStrings, TypeApplications #-}
+{-# LANGUAGE OverloadedStrings, TypeApplications, RecordWildCards #-}
 module SynthSpec (
     module SynthSpec.Types,
     module Data.Proxy,
@@ -12,7 +12,7 @@ import qualified Data.Dynamic as Dyn
 import qualified Data.Bifunctor as Bi
 import MonadUtils (concatMapM)
 import SynthSpec.Types
-import CCTP.Utils hiding (prettyTerm)
+import SynthSpec.Utils
 import Data.Proxy (Proxy(..))
 
 
@@ -21,9 +21,9 @@ import Application.TermSearch.Type
 import Application.TermSearch.TermSearch hiding (allConstructors, generalize)
 import Data.ECTA
 import Data.ECTA.Term
-import Data.List
+import Data.List hiding (union)
 import qualified Test.QuickCheck as QC
-import Control.Monad (zipWithM_, filterM)
+import Control.Monad (zipWithM_, filterM, when)
 import qualified Data.Text as T
 import qualified Data.Set as Set
 import qualified System.Environment as Env
@@ -44,6 +44,18 @@ updateRewrites (Left (Term "(==)" [_,a,b])) rw =
 updateRewrites (Right hole_rule) (Rewrite holeRules mp) =
     return (Rewrite (hole_rule:holeRules) mp)
 updateRewrites _ r = return r
+
+
+
+data StEcta = StEcta {scope_comps :: Comps, any_arg :: Node} 
+
+updateEcta :: Rewrite -> StEcta -> IO StEcta
+updateEcta rwr@(Rewrite _ rw_mp) 
+    StEcta{ scope_comps=scope_comps
+          , any_arg = Node any_args} = return $ StEcta{..}
+  where any_arg = Node any_args
+updateEcta _ stecta = return $ stecta
+        
 
 -- [Note: Hole-rewrites]
 -- perforate :: Term -> Term -> Term
@@ -102,11 +114,25 @@ badRewrite rwr@(Rewrite hole_rules mp) orig_term
                      rs -> Rewrite hole_rules (Map.unions $ map rwrMap rs)
             t' = Term s args'
             (rwt, rwrAfterRewrite) = badRewrite rwr' t'
-            finalRwt = updRw term rwt $ fromMaybe rwr' rwrAfterRewrite
-        in (runMatch rwt, Just finalRwt)
+            rwr'' = fromMaybe rwr' rwrAfterRewrite
+            finalRwt = case s of 
+                        "(==)" -> rwr''
+                        _ -> updRw term rwt rwr''
+        in (runMatch rwt, Just $ simplify finalRwt)
     | otherwise = (term, Nothing)
   where runMatch = id -- flip (foldr matchHole) hole_rules
         term@(Term s args) = runMatch orig_term
+        simplify :: Rewrite -> Rewrite
+        simplify (Rewrite h rw) = if rw == rw' 
+                                   then (Rewrite h rw)
+                                   else simplify (Rewrite h rw')
+         where shortCircuit :: (Term,Term) -> (Term, Term)
+               shortCircuit (k,t) = case rw Map.!? t of
+                                      Just r -> shortCircuit (k,r)
+                                      _ -> (k,t)
+
+               rw' = Map.fromAscList $ map shortCircuit $ Map.assocs rw
+              
 --badRewrite rwr term = (term, Nothing)
 
 
@@ -122,7 +148,10 @@ synthSpec sigs =
        -- mapM_ print $ Map.assocs sig
        -- putStrLn "given sig"
        -- putStrLn "------------------------------------------------------------"
-       mapM_ print $ Map.assocs givenSig
+       
+       putStrLn $ "In Scope (" ++ show (Map.size complSig) ++ " functions/constants):"
+       mapM_ (putStrLn . T.unpack) $ Map.keys complSig
+       putStrLn "---------------------------------"
        -- print $ (Dyn.dynTypeRep . sfFunc) <$> sig
        let givens = Map.assocs $ sfTypeRep <$> givenSig
            skels = sfTypeRep <$> sig
@@ -148,13 +177,13 @@ synthSpec sigs =
        -- putStrLn "------------------------------------------------------------"
        -- print reqSkels
        -- print boolTy
-       let res = getAllTerms $ refold $ reduceFully $ filterType anyArg resNode
+       -- let res = getAllTerms $ refold $ reduceFully $ filterType anyArg resNode
            -- TODO: make it generate the terms in a more "sane" order.
            -- even_more_terms =
            --   map prettyTerm $
            --     concatMap (getAllTerms . refold . reduceFully . flip filterType resNode )
            --               (rtkUpToKAtLeast1 argNodes scope_comps anyArg True 8)
-       putStrLn "Haskell Laws according to Haskell's (==):"
+       putStrLn "Laws according to Haskell's (==):"
        putStrLn "---------------------------------"
        let qc_args = QC.stdArgs { QC.chatty = False,
                                   QC.maxShrinks = 0,
@@ -166,18 +195,36 @@ synthSpec sigs =
            -- TODO: add e-graphs and rewrites.
            go :: Int -> IO ()
            go n = do rwrts <- initRewrites
-                     go' Set.empty rwrts [0.. n] [1..] []
-           go' _ _ [] _ [] = return ()
-           go' seen rwrts (lvl_num:lvl_nums) nums []  = do
+                     let stecta = StEcta {scope_comps = scope_comps,
+                                          any_arg = anyArg}
+                     go' Set.empty rwrts stecta [0.. n] [1..] []
+           go' _ rwrts _ [] _ [] = do
+             when (not (null (rwrMap rwrts))) $ do
+               putStrLn "Final rewrites:"
+               putStrLn "---------------"
+               mapM_ (\(k,v) -> putStrLn ((ppNpTerm k) ++ " ==> " ++ (ppNpTerm v)))
+                     (Map.assocs (rwrMap rwrts))
+               putStrLn "---------------"
+             return ()
+           go' seen rwrts stecta (lvl_num:lvl_nums) nums []  = do
             putStrLn ("Looking for exprs with " ++ show lvl_num ++ " terms...")
-            let nextNode = rtkOfSize [] scope_comps anyArg True lvl_num
+            -- If we find any rewrites for the scope, we apply them here.
+            when (not (null (rwrMap rwrts))) $ do
+              putStrLn "Current rewrites:"
+              putStrLn "-----------------"
+              mapM_ (\(k,v) -> putStrLn ((ppNpTerm k) ++ " ==> " ++ (ppNpTerm v)))
+                    (Map.assocs (rwrMap rwrts))
+              putStrLn "-----------------"
+            stecta' <- updateEcta rwrts stecta
+            let StEcta {..} = stecta'
+                nextNode = union $ tk scope_comps any_arg True lvl_num
                 -- TODO: where to best do the rewrites?
                 filtered_and_reduced = refold $ reduceFully $ filterType nextNode resNode
             -- print filtered_and_reduced 
             -- print rwrts
             rewritten <- applyRewrites rwrts filtered_and_reduced
-            go' seen rwrts lvl_nums nums $ getAllTerms rewritten
-           go' seen rwrts lvl_nums nums@(n:ns) (full_term:terms)
+            go' seen rwrts stecta' lvl_nums nums $ getAllTerms rewritten
+           go' seen rwrts stecta lvl_nums nums@(n:ns) (full_term:terms)
              | simplified `Set.member` seen = skip
              | isId wip_rewritten = skip
              | otherwise = do
@@ -200,8 +247,8 @@ synthSpec sigs =
                                     _ -> updateRewrites (Left wip_rewritten) rwrts'
                        continue rwrts'' ns terms
               where np_term = npTerm full_term
-                    continue rwrts = go' (simplified `Set.insert` seen) rwrts lvl_nums
-                    skip = go' seen rwrts' lvl_nums nums terms
+                    continue rwrts = go' (simplified `Set.insert` seen) rwrts stecta lvl_nums
+                    skip = go' seen rwrts' stecta lvl_nums nums terms
                     -- wrt variable renaming
                     simplified = simplifyVars complSig $ npTerm full_term
                     -- we're probably missing out on some rewrites due to
@@ -211,7 +258,7 @@ synthSpec sigs =
        args <- Env.getArgs
        let size = case args of
                     arg:_ | Just n <- TR.readMaybe arg -> n
-                    _ -> 7
+                    _ -> 6 -- Set to 6 to save time on the flight xD:w
        go size
 
 npTerm :: Term -> Term
@@ -263,6 +310,7 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
 --    (See [Note Hole-rewrite]. We also need to capture subsumption i.e.)
 --    ((==) x) (cons x (xs)) implies it for all xs, so anything that's there
 --    can be replaced.
+-- 4. Look at DbOpt file for examples of how we can apply rewrites directly.
 --
 --
 -- Check for equality in the presence of non-total functions, e.g.

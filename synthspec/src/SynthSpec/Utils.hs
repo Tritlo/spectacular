@@ -1,6 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE  OverloadedStrings #-}
-module CCTP.Utils where
+module SynthSpec.Utils where
 
 -- These will be ruined by GHC 9.0+ due to the reorganization
 -- These will be ruined by GHC 9.0+ due to the reorganization
@@ -140,46 +140,6 @@ tk comps anyArg _ k = map constructApp [1 .. (k-1)]
       mapp (union $ tk comps anyArg False i)
            (union $ tk comps anyArg True (k-i))
 
-tkUpToK :: Comps -> Node -> Bool -> Int -> [Node]
-tkUpToK comps anyArg includeApp k = concatMap (tk comps anyArg includeApp) [1..k]
-
--- type Argument = (Symbol, Node)
-rtk :: [Argument] -> Comps -> Node -> Bool -> Int -> [Node]
-rtk [] comps anyArg includeApplyOp k = tk comps anyArg False k
-rtk [(s,t)] _ _ _ 1 = [Node [constFunc s t]] -- If we have one arg we use it
-rtk args _ _ _ k | k < length args = []
-rtk args comps anyArg _ k = concatMap (\i -> map (constructApp i) allSplits) [1..(k-1)]
-  where allSplits = map (`splitAt` args) [0.. (length args)]
-        constructApp :: Int -> ([Argument], [Argument]) -> Node
-        constructApp i (xs, ys) =
-          let f = union $ rtk xs comps anyArg False i
-              x = union $ rtk ys comps anyArg True (k-i)
-          in mapp f x
-
-rtkOfSize :: [Argument] -> Comps -> Node -> Bool -> Int -> Node
-rtkOfSize args comps anyArg includeApp k =
-    union $ concatMap (\a -> rtk a comps anyArg includeApp k) $ permutations args
-
-rtkUpToK :: [Argument] -> Comps -> Node -> Bool -> Int -> [Node]
-rtkUpToK args comps anyArg includeApp k = 
-    map (rtkOfSize args comps anyArg includeApp) [1..k]
-
-rtkAtLeast1 :: [Argument] -> Comps -> Node -> Bool -> Int -> [Node]
-rtkAtLeast1 args comps anyArg includeApp k = 
-    map (\as -> rtkOfSize as comps anyArg includeApp k) $ map (:[]) args 
-
--- rtkUpToKAtLeast1 :: [Argument] -> Comps -> Node -> Bool -> Int -> [Node]
--- rtkUpToKAtLeast1 args comps anyArg includeApp k =
---   concatMap (\as -> rtkUpToK as comps anyArg includeApp k) $ map (:[]) args
-
--- Slower for some reason? Probably wrong also because there's a lot more 
--- repition, since we don't exclude the args etc etc.
--- TODO: improve by e.g. removing the ones already used from comps etc.
-rtkUpToKAtLeast1 :: [Argument] -> Comps -> Node -> Bool -> Int -> [Node]
-rtkUpToKAtLeast1 args comps anyArg includeApp k = 
-    concatMap (rtkAtLeast1 args comps anyArg includeApp) [1..k]
-
-
 mapp :: Node -> Node -> Node
 mapp n1 n2 = Node [
     mkEdge "app"
@@ -273,20 +233,6 @@ invertMap = toMap . groupBy ((==) `on` fst) . sortOn fst . map swap . Map.toList
   where toMap = Map.fromList . map (\((a,r):rs) -> (a,r:map snd rs))
 
 
-prettyMatch :: Map.Map Text TypeSkeleton -> Map.Map Text [Text] -> Term -> TcM [Text]
-prettyMatch skels groups (Term (Symbol t) _) =
-  do ty <- skeletonToType tsk
-     let str = case ty of
-               Just t  -> pack (" :: " ++  showSDocUnsafe (ppr t))
-               _ -> pack (" :: " ++ show tsk)
-     return $ map (M.<> str) terms
-  where tsk = case skels Map.!? t of
-                Just r -> r
-                _ -> skels Map.! (pack $ tail $ unpack t) -- for generalization
-        terms = case groups Map.!? t of
-                  Just r -> r
-                  _ -> groups Map.! (pack $ tail $ unpack t)
-            
 
 mtypeToFta :: TypeSkeleton -> Node
 mtypeToFta (TVar "a"  ) = var1

@@ -21,7 +21,6 @@ common deps
                  text,
                  containers,
                  compact-coupled-terms,
-                 cct-plugin,
                  QuickCheck
 
 
@@ -30,7 +29,8 @@ library
   hs-source-dirs: src
   exposed-modules:
     SynthSpec,
-    SynthSpec.Types
+    SynthSpec.Types,
+    SynthSpec.Utils
 
 
 executable synthspec
