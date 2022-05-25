@@ -333,6 +333,9 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
 -- 4. Look at DbOpt file for examples of how we can apply rewrites directly.
 -- 5. All of the optimizations here are useless. Just GENERATING the terms
 --    takes almost all of the time, so we need to intervene before that.
+-- 6. From QuickSpec: enumerate *terms* instead of *equations*, this should
+--    speed it up quadratically.
+-- 7. Can we add schemas easily? We can generate ECTAs for them at least.
 --
 --
 -- Check for equality in the presence of non-total functions, e.g.
