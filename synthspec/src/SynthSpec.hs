@@ -47,7 +47,7 @@ updateRewrites _ r = return r
 
 
 
-data StEcta = StEcta {scope_comps :: Comps, any_arg :: Node} 
+data StEcta = StEcta {scope_comps :: Comps, any_arg :: Node} deriving (Show)
 
 updateEcta :: Rewrite -> StEcta -> IO StEcta
 updateEcta rwr@(Rewrite _ rw_mp) 
@@ -145,11 +145,27 @@ badRewrite rwr@(Rewrite hole_rules mp) orig_term
 --badRewrite rwr term = (term, Nothing)
 
 
-            
+           
+
+data GoState = GoState {seen :: Set.Set Term,
+                        rwrts :: Rewrite,
+                        unique_terms :: Map TypeSkeleton Term,
+
+                        stecta :: StEcta,
+                        type_cons :: [TypeSkeleton],
+                        current_ty :: TypeSkeleton,
+                        so_far :: Int,
+                        lvl_nums :: [Int],
+                        law_nums :: [Int],
+                        current_terms :: [Term]
+                        } deriving (Show)
+
+
 
 synthSpec :: [Sig] -> IO ()
 synthSpec sigs = 
-    do let givenSig = sigGivens sig
+    do let (givenSig, eq_insts) = sigGivens sig
+           sig_ty_cons = Map.keys eq_insts
            complSig = sig <> givenSig
            sig = mconcat sigs
        -- putStrLn "sig"
@@ -159,8 +175,14 @@ synthSpec sigs =
        -- putStrLn "------------------------------------------------------------"
        
        putStrLn $ "In Scope (" ++ show (Map.size complSig) ++ " functions/constants):"
-       mapM_ (putStrLn . T.unpack) $ Map.keys complSig
        putStrLn "---------------------------------"
+       mapM_ (putStrLn . T.unpack) $ Map.keys complSig
+       putStrLn ""
+       putStrLn "Type constructors in the signature:"
+       putStrLn "---------------------------------"
+       mapM_ print sig_ty_cons
+       putStrLn ""
+
        -- print $ (Dyn.dynTypeRep . sfFunc) <$> sig
        let givens = Map.assocs $ sfTypeRep <$> givenSig
            skels = sfTypeRep <$> sig
@@ -200,15 +222,28 @@ synthSpec sigs =
        let isId :: Term -> Bool
            isId (Term "(==)" [_, a,b]) = a == b
            isId _ = False
+
+        
             
            -- TODO: add e-graphs and rewrites.
            go :: Int -> IO ()
            go n = do rwrts <- initRewrites
-                     let stecta = StEcta {scope_comps = scope_comps,
-                                          any_arg = anyArg}
-                     go' Set.empty rwrts stecta [0.. n] 0 [1..] []
-           go' _ rwrts _ [] sofar _ [] = do
-             putStrLn $ "Done! " ++ show sofar ++ " terms examined."
+                     go' GoState {seen = Set.empty,
+                                  rwrts = rwrts,
+                                  unique_terms = Map.empty,
+                                  stecta = StEcta{ scope_comps = scope_comps,
+                                                   any_arg = anyArg},
+                                  type_cons = sig_ty_cons,
+                                  current_ty = error "no type yet!",
+                                  so_far = 0,
+                                  lvl_nums = [0..n],
+                                  law_nums = [1..],
+                                  current_terms = []}
+           go' :: GoState -> IO () 
+           go' (GoState{ lvl_nums = [],
+                        current_terms = [],
+                        type_cons = [], ..}) = do
+             putStrLn $ "Done! " ++ show so_far ++ " terms examined."
              when (not (null (rwrMap rwrts))) $ do
                putStrLn "Final rewrites:"
                putStrLn "---------------"
@@ -217,44 +252,58 @@ synthSpec sigs =
                putStrLn "---------------"
              reportStats
              return ()
-           go' seen rwrts stecta (lvl_num:lvl_nums) sofar nums []  = do
-            putStrLn (show sofar ++ " terms examined so far")
-            putStrLn ("Looking for exprs with " ++ show lvl_num ++ " terms...")
+           go' (GoState{ type_cons = [],
+                         lvl_nums = (lvl_num:lvl_nums),
+                         current_terms = [],
+                         ..}) = do
+            putStrLn (show so_far ++ " terms examined so far")
+            putStrLn ("Looking for exprs with " ++ show (lvl_num+1) ++ " terms...")
             -- If we find any rewrites for the scope, we apply them here.
-            when (not (null (rwrMap rwrts))) $ do
-              putStrLn "Current rewrites:"
-              putStrLn "-----------------"
-              mapM_ (\(k,v) -> putStrLn ((ppNpTerm k) ++ " ==> " ++ (ppNpTerm v)))
-                    (Map.assocs (rwrMap rwrts))
-              putStrLn "-----------------"
+            -- when (not (null (rwrMap rwrts))) $ do
+            --   putStrLn "Current rewrites:"
+            --   putStrLn "-----------------"
+            --   mapM_ (\(k,v) -> putStrLn ((ppNpTerm k) ++ " ==> " ++ (ppNpTerm v)))
+            --         (Map.assocs (rwrMap rwrts))
+            --   putStrLn "-----------------"
             stecta' <- updateEcta rwrts stecta
-            let StEcta {..} = stecta'
-                nextNode = union $ tk scope_comps any_arg True lvl_num
+            go' GoState { stecta=stecta',
+                          type_cons = sig_ty_cons,
+                          current_terms =[], ..}
+           go' GoState {stecta=stecta@StEcta{..},
+                        type_cons = (tc:tcs),
+                        lvl_nums=lvl_nums@(lvl_num:_),
+                        current_terms = [],..} = do
+           -- seen rwrts stecta@(StEcta {..}) (tc:tcs) lvl_nums@(lvl_num:_)  []  = do
+            putStrLn ("Checking " ++ (T.unpack $ ppTy tc)
+                       ++ " with size " ++ show lvl_num ++ "...")
+            let nextNode = union $ tk scope_comps any_arg True lvl_num
                 -- TODO: where to best do the rewrites?
+            -- filtered_and_reduced <- fmap refold <$> collectStats $ 
+            --     reduceFullyAndLog $ filterType nextNode (typeToFta tc)
             filtered_and_reduced <- fmap refold <$> collectStats $ 
-                reduceFullyAndLog $ filterType nextNode resNode
+                (return $ reduceFully $ filterType nextNode (typeToFta tc))
 
-                -- filtered_and_reduced = refold $ reduceFully $ filterType nextNode resNode
-            -- print filtered_and_reduced 
-            -- print rwrts
             rewritten <- applyRewrites rwrts filtered_and_reduced
-            go' seen rwrts stecta' lvl_nums sofar nums $ getAllTerms rewritten
-           go' seen rwrts stecta lvl_nums sofar nums@(n:ns) (full_term:terms)
+            go' GoState{current_terms = getAllTerms rewritten,
+                        type_cons = tcs,
+                        current_ty = tc,..}
+           go' GoState{law_nums = law_nums@(n:ns),
+                       current_terms = (full_term:terms), ..}
               -- if there is a possible re-write that's *smaller*, then we can
               -- skip right away, since we'll already have tested that one.
              | hasSmallerRewrite rwrts simplified = skip 
              | simplified `Set.member` seen = skip
              | isId wip_rewritten = skip
              | otherwise = do
-                
-               --putStrLn $ T.unpack ("Testing: " <> pp term)
-               -- putStrLn $ T.unpack ("Testing: " <> pp term)
+               --let Term "filter" (term_typ:_) = full_term
+               putStrLn $ ("Testing: " <> ppNpTerm wip_rewritten 
+                          <> " :: " <> (T.unpack $ ppTy current_ty))
                let termGen = termToGen complSig Map.empty wip_rewritten
                -- (fmap (flip Dyn.fromDyn False) $ QC.generate termGen) >>= print
                holds <- collectStats $ 
                          QC.isSuccess <$>
                           QC.quickCheckWithResult qc_args (dynProp termGen)
-               if not holds then continue rwrts' nums terms
+               if not holds then continue rwrts' law_nums terms
                else do putStrLn ((show n <> ". ") <> (ppNpTerm $ np_term))
                        let (Term "(==)" [_,lhs@(Term (Symbol lhss) (lht:_)),rhs]) = np_term
                        -- Find hole-rewrites
@@ -266,11 +315,15 @@ synthSpec sigs =
                                         updateRewrites (Left wip_rewritten) rwrts'
                                     _ -> updateRewrites (Left wip_rewritten) rwrts'
                        continue rwrts'' ns terms
-              where np_term = npTerm full_term
-                    continue rwrts = go' (simplified `Set.insert` seen) rwrts stecta lvl_nums (sofar +1)
-                    skip = go' seen rwrts' stecta lvl_nums (sofar + 1) nums terms
+              where np_term = npTerm' full_term
+                    continue rwrts law_nums terms =
+                      go' GoState {seen = simplified `Set.insert` seen,
+                                  so_far=(so_far+1),
+                                  current_terms = terms, ..}
+                    skip = go' GoState{so_far = so_far+1,
+                                       current_terms = terms, ..}
                     -- wrt variable renaming
-                    simplified = simplifyVars complSig $ npTerm full_term
+                    simplified = simplifyVars complSig $ npTerm' full_term
                     -- we're probably missing out on some rewrites due to
                     -- us operating on the flipped term
                     (wip_rewritten, rwrts') = (fromMaybe rwrts) <$>
@@ -297,6 +350,12 @@ npTerm (Term "filter" [_,
 npTerm (Term "app" [t,_,a,v]) =  (Term "app" $ [t, npTerm a, npTerm v])
 npTerm t = t
 
+npTerm' :: Term -> Term
+npTerm' (Term "filter" [_,term]) = npTerm' term
+npTerm' (Term "app" [t,_,a,v]) =  (Term "app" $ [t, npTerm' a, npTerm' v])
+npTerm' t = t
+
+
 showNpTerm :: Term -> String
 showNpTerm = ppTerm' 0 
  where ppTerm' n (Term "app" ns) = intercalate "\n" $ ((replicate n ' ' ++ "app" ):(map ((replicate (n+2) ' ' ++) . ppTerm' (n+2)) ns))
@@ -313,9 +372,16 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
         ppTerm' _ (Term (Symbol t) _) = T.unpack t
         parIfReq s@(c:_) | c /= '(', c /= '[', not (isAlphaNum c) = "("<>s<>")"
         parIfReq s = s
-        
 
--- TODO:
+ppTy :: TypeSkeleton -> T.Text
+ppTy (TCons t []) = t
+ppTy (TCons "[]" r) = "[" <> (mconcat $ intersperse " " $ map ppTy r) <> "]"
+ppTy (TCons "(,)" r) = "(" <> (mconcat $ intersperse "," $ map ppTy r) <> ")"
+ppTy (TCons t r) = t <> (mconcat $ " ":(intersperse " " $ map ppTy r))
+ppTy (TVar v) = v
+ppTy (TFun arg ret) = "(" <> ppTy arg <> " -> " <> ppTy ret <> ")"
+
+-- TODO:gg
 -- 2. knuth-bendix completion algorithm (we're almost there)
 --    what to do when the size is the same? We want only one way to reduce a term
 --    resolve critical pairs: if a term can be rewritten with two different rules
@@ -336,6 +402,7 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
 -- 6. From QuickSpec: enumerate *terms* instead of *equations*, this should
 --    speed it up quadratically.
 -- 7. Can we add schemas easily? We can generate ECTAs for them at least.
+-- 8. We should be able to do the "rewrites" by cleverly constructing the ECTAs
 --
 --
 -- Check for equality in the presence of non-total functions, e.g.

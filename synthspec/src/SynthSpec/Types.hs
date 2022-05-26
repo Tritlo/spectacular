@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeSynonymInstances, FlexibleInstances, OverloadedStrings,
              ScopedTypeVariables, TypeApplications, RecordWildCards, GADTs,
              StandaloneDeriving, KindSignatures, PolyKinds, RankNTypes,
-             GeneralizedNewtypeDeriving, FlexibleContexts #-}
+             GeneralizedNewtypeDeriving, FlexibleContexts, TupleSections #-}
 
 module SynthSpec.Types where
 import Data.Dynamic
@@ -65,13 +65,16 @@ data GeneratedInstance = Gend {
     g_li_i :: GeneratedInstance
     }
 
-sigGivens :: Sig -> Sig 
-sigGivens sigs = eqDef
-                 -- <> eqLaws
-                 <> Map.fromList (mapMaybe toEqInst (Map.keys allCons))
-                 <> Map.fromList (mapMaybe toEmptyLi (Map.keys allCons))
-                 <> Map.fromList (concatMap consNames (Map.assocs allCons))
+sigGivens :: Sig -> (Sig , Map TypeSkeleton Dynamic)
+sigGivens sigs = (--eqDef <>
+                  Map.fromList (mapMaybe toEqInst (Map.keys allCons)) <>
+                  Map.fromList (mapMaybe toEmptyLi (Map.keys allCons)) <>
+                  Map.fromList (concatMap consNames (Map.assocs allCons)),
+                  Map.fromList $ mapMaybe (\c -> (c,) <$> (genRep c >>= g_eq))
+                               $ filter isCon $ Map.keys allCons)
   where trs = map sfTypeRep $ Map.elems sigs
+        isCon (TCons _ _) = True
+        isCon _ = False
         -- we specialcase lists
         --cons t@(TCons "[]" r) = Map.unionsWith (+) $ map cons r
         -- cons t@(TCons "[]" [TCons "[]" [TCons a []]]) = (Map.singleton t (1 :: Int))
