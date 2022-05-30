@@ -8,8 +8,11 @@ module SynthSpec (
     synthSpec
 ) where
 
-import qualified Data.Map as Map
-import Data.Map (Map)
+-- slower, but uses less memory.
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
+-- import qualified Data.Map as Map
+-- import Data.Map (Map)
 import qualified Data.Dynamic as Dyn
 import qualified Data.Bifunctor as Bi
 import MonadUtils (concatMapM)
@@ -41,12 +44,14 @@ import qualified Control.Concurrent as CC
 
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IM
 import Data.Hashable (hash)
 
 -- TODO: make this an e-graph or similar datastructure
-data Rewrite = Rewrite [(Term, Term)] (Map Term Term) deriving (Show)
+data Rewrite = Rewrite [(Term, Term)] (IntMap Term) deriving (Show)
 
-rwrMap :: Rewrite -> Map Term Term
+rwrMap :: Rewrite -> IntMap Term
 rwrMap (Rewrite _ r) = r
 
 updateRewrites :: Either Term (Term,Term) -> Rewrite -> IO Rewrite
@@ -70,7 +75,7 @@ updateEcta _ stecta = return $ stecta
 
 hasSmallerRewrite :: Rewrite -> Term -> Bool
 hasSmallerRewrite rw@(Rewrite _ rw_mp) t@(Term _ args) =
- case rw_mp Map.!? t of
+ case rw_mp IM.!? (hash t) of
    Just r -> termSize t < termSize r
    _ -> any (hasSmallerRewrite rw) args
 
@@ -107,13 +112,13 @@ updRw a b (Rewrite hole_rules mp) =
                                          then (a,b)
                                          else (b,a)
                                     else (b,a)
-    in Rewrite hole_rules (Map.insert big sml mp)
+    in Rewrite hole_rules (IM.insert (hash big) sml mp)
 
 applyRewrites :: Rewrite -> Node -> IO Node
 applyRewrites r n = return n
 
 initRewrites :: IO Rewrite
-initRewrites = return $ Rewrite [] Map.empty
+initRewrites = return $ Rewrite [] IM.empty
 
 termSize :: Term -> Int
 termSize (Term s []) = 1
@@ -126,12 +131,12 @@ termSize (Term s args) = 1 + sum (map termSize args)
 
 badRewrite :: Rewrite -> Term -> (Term, Maybe Rewrite)
 badRewrite rwr@(Rewrite hole_rules mp) orig_term
-    | Just smllr <- mp Map.!? term = (runMatch smllr,Nothing)
+    | Just smllr <- mp IM.!? (hash term) = (runMatch smllr,Nothing)
     | (args',mb_rwrs) <- unzip $ map (badRewrite rwr) args,
       args' /= args =
         let rwr' = case catMaybes mb_rwrs of
                      [] -> rwr
-                     rs -> Rewrite hole_rules (Map.unions $ map rwrMap rs)
+                     rs -> Rewrite hole_rules (IM.unions $ map rwrMap rs)
             t' = Term s args'
             (rwt, rwrAfterRewrite) = badRewrite rwr' t'
             rwr'' = fromMaybe rwr' rwrAfterRewrite
@@ -146,12 +151,12 @@ badRewrite rwr@(Rewrite hole_rules mp) orig_term
         simplify (Rewrite h rw) = if rw == rw'
                                    then (Rewrite h rw)
                                    else simplify (Rewrite h rw')
-         where shortCircuit :: (Term,Term) -> (Term, Term)
-               shortCircuit (k,t) = case rw Map.!? t of
+         where shortCircuit :: (Int,Term) -> (Int, Term)
+               shortCircuit (k,t) = case rw IM.!? (hash t) of
                                       Just r -> shortCircuit (k,r)
                                       _ -> (k,t)
 
-               rw' = Map.fromAscList $ map shortCircuit $ Map.assocs rw
+               rw' = IM.fromAscList $ map shortCircuit $ IM.assocs rw
 
 --badRewrite rwr term = (term, Nothing)
 
@@ -230,7 +235,7 @@ synthSpec sigs =
                                   QC.maxShrinks = 0,
                                   QC.maxSuccess = 1000}
        let isId :: Term -> Bool
-           isId (Term "(==)" [_, a,b]) = a == b
+           isId (Term "(==)" [_, a,b]) = (hash a) == (hash b)
            isId _ = False
 
            mtk _ _ _ 0 = []
@@ -367,15 +372,8 @@ synthSpec sigs =
                             testAllPar' as [] = firstSuccessful as
                             -- otherwise, we have to start the work (and we check if we've finished anything so far)
                             testAllPar' as (c:cs) = CCA.withAsync (testAll c) $ \a -> testAllPar' (a:as) cs
-                                        -- before we start we check if any of the others have finished
-                                        -- which might happen since we generate the terms lazily.
-                                        -- any_done <- (catMaybes . rights . catMaybes) <$> mapM CCA.poll as
-                                        -- case any_done of
-                                        --     (r:_) -> return (Just r)
-                                        --     _ -> testAllPar' n (a:as) cs
 
 
-                -- holds <- testAll terms_to_test
                 holds <- testAllPar terms_to_test
 
 

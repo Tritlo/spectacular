@@ -294,14 +294,15 @@ statsRef = unsafePerformIO $ newIORef Map.empty
 
 
 collectStats :: (MonadIO m, HasCallStack) => m a -> m a
-collectStats a = do
-  (t, r) <- time a
-  let ((_, GHS.SrcLoc {..}) : _) = GHS.getCallStack GHS.callStack
-  let inF (a1, b1) (a2, b2) = (a1 + a2, b1 + b2)
-  liftIO $ modifyIORef' statsRef (Map.insertWith inF (srcLocFile, srcLocStartLine) t)
-  -- We don't want to flood the terminal with output
-  -- GHS.withFrozenCallStack $ liftIO $ putStrLn (showTime t)
-  return r
+collectStats = id
+-- collectStats a = do
+--   (t, r) <- time a
+--   let ((_, GHS.SrcLoc {..}) : _) = GHS.getCallStack GHS.callStack
+--   let inF (a1, b1) (a2, b2) = (a1 + a2, b1 + b2)
+--   liftIO $ modifyIORef' statsRef (Map.insertWith inF (srcLocFile, srcLocStartLine) t)
+--   -- We don't want to flood the terminal with output
+--   -- GHS.withFrozenCallStack $ liftIO $ putStrLn (showTime t)
+--   return r
 
 resetStats :: MonadIO m => m ()
 resetStats = liftIO $ writeIORef statsRef Map.empty
@@ -313,9 +314,10 @@ getStats =
      in map pp . Map.toList <$> readIORef statsRef
 
 reportStats :: MonadIO m => m ()
-reportStats = liftIO $ do
-  putStrLn "SUMMARY"
-  getStats >>= mapM_ putStrLn 
+reportStats = return ()
+-- reportStats = liftIO $ do
+--   putStrLn "SUMMARY"
+--   getStats >>= mapM_ putStrLn 
 
 -- | Transforms time given in ns (as measured by "time") into a string
 showTime :: (Integer, Integer) -> String
