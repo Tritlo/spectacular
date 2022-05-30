@@ -23,7 +23,8 @@ common deps
                  compact-coupled-terms,
                  time,
                  QuickCheck,
-                 async
+                 async,
+                 hashable
 
 
 library

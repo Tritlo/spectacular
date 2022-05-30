@@ -39,6 +39,10 @@ import Data.Either (rights)
 import qualified Control.Concurrent.Async as CCA
 import qualified Control.Concurrent as CC
 
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IntSet
+import Data.Hashable (hash)
+
 -- TODO: make this an e-graph or similar datastructure
 data Rewrite = Rewrite [(Term, Term)] (Map Term Term) deriving (Show)
 
@@ -154,7 +158,7 @@ badRewrite rwr@(Rewrite hole_rules mp) orig_term
 
 
 
-data GoState = GoState {seen :: Set.Set Term,
+data GoState = GoState {seen :: IntSet, --hashed integers
                         rwrts :: Rewrite,
                         unique_terms :: Map TypeSkeleton [Term],
                         stecta :: StEcta,
@@ -244,7 +248,7 @@ synthSpec sigs =
            -- TODO: add e-graphs and rewrites.
            go :: Int -> IO ()
            go n = do rwrts <- initRewrites
-                     go' GoState {seen = Set.empty,
+                     go' GoState {seen = IntSet.empty,
                                   rwrts = rwrts,
                                   unique_terms = Map.empty,
                                   stecta = StEcta{ scope_comps = scope_comps,
@@ -313,7 +317,7 @@ synthSpec sigs =
               -- skip right away, since we'll already have tested that one.
 
              | hasSmallerRewrite rwrts simplified = skip
-             | wip_rewritten `Set.member` seen = skip
+             | (hash wip_rewritten) `IntSet.member` seen = skip
              | isId wip_rewritten = skip
              | not (current_ty `Map.member` unique_terms) =
                 go' (GoState{current_terms = terms,
@@ -394,7 +398,7 @@ synthSpec sigs =
                                      _ -> updateRewrites (Left $ npTerm' t) rwrts'
                         continue rwrts'' ns terms
               where continue rwrts law_nums terms =
-                      go' GoState {seen = wip_rewritten `Set.insert` seen,
+                      go' GoState {seen = (hash wip_rewritten) `IntSet.insert` seen,
                                   so_far=(so_far+1),
                                   current_terms = terms, ..}
                     skip = go' GoState{so_far = so_far+1,
