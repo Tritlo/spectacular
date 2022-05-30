@@ -1,5 +1,7 @@
 {-# OPTIONS -fno-max-valid-hole-fits #-}
-{-# LANGUAGE OverloadedStrings, TypeApplications, RecordWildCards, TupleSections #-}
+{-# LANGUAGE OverloadedStrings, TypeApplications, RecordWildCards,
+             TupleSections, StandaloneDeriving, DeriveAnyClass,
+             DeriveGeneric #-}
 module SynthSpec (
     module SynthSpec.Types,
     module Data.Proxy,
@@ -32,9 +34,10 @@ import qualified Text.Read as TR
 import Debug.Trace
 import Data.Maybe (fromMaybe, catMaybes, mapMaybe)
 import Data.Char (isAlphaNum)
+import Data.Either (rights)
 
-import qualified Control.Concurrent.Async as Async
-import Control.Concurrent.Async (mapConcurrently)
+import qualified Control.Concurrent.Async as CCA
+import qualified Control.Concurrent as CC
 
 -- TODO: make this an e-graph or similar datastructure
 data Rewrite = Rewrite [(Term, Term)] (Map Term Term) deriving (Show)
@@ -333,7 +336,32 @@ synthSpec sigs =
                     testAll (t:ts) = do r <- runTest t
                                         if r then return (Just t)
                                         else testAll ts
-                holds <- testAll terms_to_test
+                    testAllPar :: [Term] -> IO (Maybe Term)
+                    testAllPar terms | length terms <= 20 = testAll terms
+                    testAllPar terms = do n <- CC.getNumCapabilities
+                                          testAllPar' [] $ (chunks n terms)
+                      where testAllPar' :: [CCA.Async (Maybe Term)] -> [[Term]] -> IO (Maybe Term)
+                            testAllPar' [] [] = return Nothing
+                            testAllPar' as (c:cs) =
+                                CCA.withAsync (testAll c)
+                                    $ \a -> do
+                                        -- before we start we check if any of the others have finished
+                                        -- which might happen since we generate the terms lazily.
+                                        any_done <- (catMaybes . rights . catMaybes) <$> mapM CCA.poll as
+                                        case any_done of
+                                            (r:_) -> return (Just r)
+                                            _ -> testAllPar' (a:as) cs
+                            testAllPar' as [] =
+                                 do (a,r) <- CCA.waitAny as
+                                    let as' = filter (/= a) as
+                                    case r of
+                                        Just _ -> do mapM CCA.cancel as'
+                                                     return r
+                                        _ -> testAllPar' as' []
+
+
+                -- holds <- testAll terms_to_test
+                holds <- testAllPar terms_to_test
 
 
                 case holds of

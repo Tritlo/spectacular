@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, DeriveGeneric, DeriveAnyClass #-}
 
 module Data.ECTA.Internal.Term (
     Symbol(.., Symbol)
@@ -24,12 +24,13 @@ import Control.Lens ( (&), ix, (^?), (%~) )
 import Data.ECTA.Paths
 import Data.Text.Extended.Pretty
 
+
 ---------------------------------------------------------------
 -------------------------- Symbols ----------------------------
 ---------------------------------------------------------------
 
 data Symbol = Symbol' {-# UNPACK #-} !InternedText
-  deriving ( Eq, Ord )
+  deriving ( Eq, Ord, Generic )
 
 pattern Symbol :: Text -> Symbol
 pattern Symbol t <- Symbol' (OrigInterned.unintern -> t) where
