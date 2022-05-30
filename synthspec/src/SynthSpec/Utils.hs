@@ -148,6 +148,19 @@ tk comps anyArg _ k = map constructApp [1 .. (k-1)]
       mapp (union $ tk comps anyArg False i)
            (union $ tk comps anyArg True (k-i))
 
+-- type Argument = (Symbol, Node)
+rtk :: [Argument] -> Comps -> Node -> Bool -> Int -> [Node]
+rtk [] comps anyArg includeApplyOp k = tk comps anyArg False k
+rtk [(s,t)] _ _ _ 1 = [Node [constFunc s t]] -- If we have one arg we use it
+rtk args _ _ _ k | k < length args = []
+rtk args comps anyArg _ k = concatMap (\i -> map (constructApp i) allSplits) [1..(k-1)]
+  where allSplits = map (`splitAt` args) [0.. (length args)]
+        constructApp :: Int -> ([Argument], [Argument]) -> Node
+        constructApp i (xs, ys) =
+          let f = union $ rtk xs comps anyArg False i
+              x = union $ rtk ys comps anyArg True (k-i)
+          in mapp f x
+
 mapp :: Node -> Node -> Node
 mapp n1 n2 = Node [
     mkEdge "app"

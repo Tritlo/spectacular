@@ -65,12 +65,12 @@ data GeneratedInstance = Gend {
     g_li_i :: GeneratedInstance
     }
 
-sigGivens :: Sig -> (Sig , Map TypeSkeleton Dynamic)
+sigGivens :: Sig -> (Sig , Map TypeSkeleton Text)
 sigGivens sigs = (--eqDef <>
                   Map.fromList (mapMaybe toEqInst (Map.keys allCons)) <>
                   Map.fromList (mapMaybe toEmptyLi (Map.keys allCons)) <>
                   Map.fromList (concatMap consNames (Map.assocs allCons)),
-                  Map.fromList $ mapMaybe (\c -> (c,) <$> (genRep c >>= g_eq))
+                  Map.fromList $ mapMaybe (\c -> ((c,) . fst) <$> toEqInst c)
                                $ filter isCon $ Map.keys allCons)
   where trs = map sfTypeRep $ Map.elems sigs
         isCon (TCons _ _) = True
