@@ -261,12 +261,12 @@ synthSpec sigs =
                         type_cons = _, ..}) = do
              putStrLn $ "Done! " ++ show so_far ++ " terms examined."
              putStrLn $ show (sum $ map (length) $ Map.elems unique_terms) ++ " unique terms discovered."
-             when (not (null (rwrMap rwrts))) $ do
-               putStrLn "Final rewrites:"
-               putStrLn "---------------"
-               mapM_ (\(k,v) -> putStrLn ((ppNpTerm k) ++ " ==> " ++ (ppNpTerm v)))
-                     (Map.assocs (rwrMap rwrts))
-               putStrLn "---------------"
+            --  when (not (null (rwrMap rwrts))) $ do
+            --    putStrLn "Final rewrites:"
+            --    putStrLn "---------------"
+            --    mapM_ (\(k,v) -> putStrLn ((ppNpTerm k) ++ " ==> " ++ (ppNpTerm v)))
+            --          (Map.assocs (rwrMap rwrts))
+            --    putStrLn "---------------"
              reportStats
              return ()
            go' (GoState{ type_cons = [],
@@ -326,38 +326,49 @@ synthSpec sigs =
                     terms_to_test = map termToTest other_terms
                 -- putStrLn $ ("Testing: " <> ppNpTerm wip_rewritten
                 --            <> " :: " <> (T.unpack $ ppTy current_ty))
-                let termGen = termToGen complSig Map.empty wip_rewritten
-                -- (fmap (flip Dyn.fromDyn False) $ QC.generate termGen) >>= print
-                    runTest t = collectStats $ QC.isSuccess <$>
-                                 (QC.quickCheckWithResult qc_args $
-                                     dynProp $ termToGen complSig Map.empty t)
-                -- TODO: change into foldM so it terminates early!
+                let -- No need to run multiple tests if there are no variables!
+                    runTest t =
+                        -- We test 100x per variable, but for constants we
+                        -- need only test once!
+                        let nvs = max (length (termVars complSig t) * 100) 1
+                            qc_args' = qc_args {QC.maxSuccess = nvs}
+                        in collectStats $ QC.isSuccess <$>
+                                           (QC.quickCheckWithResult qc_args' $
+                                              dynProp $ termToGen complSig Map.empty t)
                     testAll [] = return Nothing
                     testAll (t:ts) = do r <- runTest t
                                         if r then return (Just t)
                                         else testAll ts
                     testAllPar :: [Term] -> IO (Maybe Term)
-                    testAllPar terms | length terms <= 20 = testAll terms
+                    testAllPar [] = return Nothing
                     testAllPar terms = do n <- CC.getNumCapabilities
-                                          testAllPar' [] $ (chunks n terms)
-                      where testAllPar' :: [CCA.Async (Maybe Term)] -> [[Term]] -> IO (Maybe Term)
-                            testAllPar' [] [] = return Nothing
-                            testAllPar' as (c:cs) =
-                                CCA.withAsync (testAll c)
-                                    $ \a -> do
-                                        -- before we start we check if any of the others have finished
-                                        -- which might happen since we generate the terms lazily.
-                                        any_done <- (catMaybes . rights . catMaybes) <$> mapM CCA.poll as
-                                        case any_done of
-                                            (r:_) -> return (Just r)
-                                            _ -> testAllPar' (a:as) cs
-                            testAllPar' as [] =
+                                          if n >= length terms
+                                          then testAll terms
+                                          else testAllPar' [] $ (chunks ((length terms) `div` n) terms)
+                      where firstSuccessful :: [CCA.Async (Maybe Term)]  -> IO (Maybe Term)
+                            firstSuccessful [] = return Nothing
+                            firstSuccessful as = do
                                  do (a,r) <- CCA.waitAny as
                                     let as' = filter (/= a) as
                                     case r of
                                         Just _ -> do mapM CCA.cancel as'
                                                      return r
-                                        _ -> testAllPar' as' []
+                                        _ -> firstSuccessful as'
+                            testAllPar' :: [CCA.Async (Maybe Term)] -> [[Term]] -> IO (Maybe Term)
+                            -- if there's only one, no need for async
+                            testAllPar' [] [] = return Nothing
+                            testAllPar' [] [c] = testAll c
+                            -- if we don't have any more chunks to start, we
+                            -- just finish it
+                            testAllPar' as [] = firstSuccessful as
+                            -- otherwise, we have to start the work (and we check if we've finished anything so far)
+                            testAllPar' as (c:cs) = CCA.withAsync (testAll c) $ \a -> testAllPar' (a:as) cs
+                                        -- before we start we check if any of the others have finished
+                                        -- which might happen since we generate the terms lazily.
+                                        -- any_done <- (catMaybes . rights . catMaybes) <$> mapM CCA.poll as
+                                        -- case any_done of
+                                        --     (r:_) -> return (Just r)
+                                        --     _ -> testAllPar' n (a:as) cs
 
 
                 -- holds <- testAll terms_to_test
