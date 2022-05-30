@@ -329,18 +329,20 @@ synthSpec sigs =
                                  (QC.quickCheckWithResult qc_args $
                                      dynProp $ termToGen complSig Map.empty t)
                 -- TODO: change into foldM so it terminates early!
-                holds <- mapConcurrently (\t -> (t,) <$> runTest t) terms_to_test
+                    testAll [] = return Nothing
+                    testAll (t:ts) = do r <- runTest t
+                                        if r then return (Just t)
+                                        else testAll ts
+                holds <- testAll terms_to_test
 
 
-                if not (any snd holds)
-                then do -- putStrLn ("Unique found! " ++ (ppNpTerm $ npTerm' full_term))
-                        go' GoState {so_far = (so_far + length terms_to_test),
-                                    current_terms = terms,
-                                    unique_terms =
-                                      Map.adjust (wip_rewritten:) current_ty unique_terms,
-                                    rwrts = rwrts',..}
-                --continue rwrts' law_nums terms
-                else do let ((t,_):_) = filter snd holds
+                case holds of
+                    Nothing -> go' GoState {so_far = (so_far + length terms_to_test),
+                                            current_terms = terms,
+                                            unique_terms =
+                                              Map.adjust (wip_rewritten:) current_ty unique_terms,
+                                            rwrts = rwrts',..}
+                    Just t -> do
                         putStrLn ((show n <> ". ") <> (ppNpTerm $ t))
                         let (Term "(==)" [_,lhs@(Term (Symbol lhss) (lht:_)),rhs]) = npTerm' t
                         -- Find hole-rewrites
