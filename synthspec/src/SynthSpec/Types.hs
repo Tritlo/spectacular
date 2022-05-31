@@ -65,14 +65,18 @@ data GeneratedInstance = Gend {
     g_li_i :: GeneratedInstance
     }
 
-sigGivens :: Sig -> (Sig , Map TypeSkeleton Text)
+sigGivens :: Sig -> (Sig, Map TypeSkeleton Text, Map TypeSkeleton [Text])
 sigGivens sigs = (--eqDef <>
-                  Map.fromList (mapMaybe toEqInst (Map.keys allCons)) <>
-                  Map.fromList (mapMaybe toEmptyLi (Map.keys allCons)) <>
-                  Map.fromList (concatMap consNames (Map.assocs allCons)),
-                  Map.fromList $ mapMaybe (\c -> ((c,) . fst) <$> toEqInst c)
-                               $ filter isCon $ Map.keys allCons)
+                   Map.fromList (mapMaybe toEqInst (Map.keys allCons)) <>
+                   Map.fromList (mapMaybe toEmptyLi (Map.keys allCons)) <>
+                   Map.fromList (concatMap consNames (Map.assocs allCons))
+                 , eq_insts
+                 , arbs)
   where trs = map sfTypeRep $ Map.elems sigs
+        eq_insts = Map.fromList $ mapMaybe (\c -> ((c,) . fst) <$> toEqInst c)
+                                $ filter isCon $ Map.keys allCons
+        arbs = Map.fromList $ map (\t@(ty,_) -> (ty, map fst $ consNames t))
+                            $ Map.assocs allCons
         isCon (TCons _ _) = True
         isCon _ = False
         -- we specialcase lists
@@ -114,7 +118,8 @@ sigGivens sigs = (--eqDef <>
                              $ TFun (TVar "a")
                              $ TFun (TVar "a")
                              $ TCons "Bool" []
-
+        
+        consNames :: (TypeSkeleton, Int) -> [(Text, Func)]
         consNames (t, n) | Just r <- genRep t = g r
                          | otherwise = []
            where g rep = map ((\gf@(GivenFun gv _) -> (gvToName gv, gf)) .

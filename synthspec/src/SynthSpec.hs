@@ -47,6 +47,7 @@ import qualified Data.IntSet as IntSet
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IM
 import Data.Hashable (hash)
+import qualified Data.List as L
 
 -- TODO: make this an e-graph or similar datastructure
 data Rewrite = Rewrite [(Term, Term)] (IntMap Term) deriving (Show)
@@ -78,6 +79,38 @@ hasSmallerRewrite rw@(Rewrite _ rw_mp) t@(Term _ args) =
  case rw_mp IM.!? (hash t) of
    Just r -> termSize t < termSize r
    _ -> any (hasSmallerRewrite rw) args
+
+generalizedTerm :: IntMap [T.Text] -> Term -> [Term]
+generalizedTerm arbs t@(Term tsy [ty]) =
+    case arbs IM.!? (hash ty) of
+        Just (sy:_) | tsy /= (Symbol sy) -> [Term (Symbol sy) [ty]]
+        _ -> []
+generalizedTerm arbs t@(Term "app" [ty,f,v]) =
+    let gf = (f:generalizedTerm arbs f)
+        gv = (v:generalizedTerm arbs v)
+        combs = [Term "app" [ty,f',v'] | f' <- gf, v' <- gv]
+    in case arbs IM.!? (hash ty) of
+        Just (sy:_) -> (Term (Symbol sy) [ty]):combs
+        _ -> combs
+generalizedTerm _ t = [t] -- shouldn't happend
+            
+    
+hasSubsumption :: Rewrite -> IntMap [T.Text] -> Term -> Maybe Term
+hasSubsumption rw@(Rewrite _ rw_mp) arbs t@(Term s args) =
+    L.find (flip IM.member rw_mp . hash) (generalizedTerm arbs t) 
+
+typeSkeletonToTerm :: TypeSkeleton -> Term
+typeSkeletonToTerm (TCons s args) 
+    = Term (Symbol s) $ map typeSkeletonToTerm args
+typeSkeletonToTerm (TFun f v) =
+    Term "->" [Term "(->)" [], typeSkeletonToTerm f, typeSkeletonToTerm v]
+
+termTyToTypeSkeleton  :: Term -> TypeSkeleton
+termTyToTypeSkeleton (Term "->" [Term "(->)" [], a, b]) =
+    TFun (termTyToTypeSkeleton a) (termTyToTypeSkeleton b)
+termTyToTypeSkeleton (Term (Symbol s) args) =
+    TCons s $ map termTyToTypeSkeleton args
+
 
 -- [Note: re-writes]: We don't need to do the re-write if there is a smaller
 -- version, because that will already have been seen.
@@ -179,7 +212,9 @@ data GoState = GoState {seen :: IntSet, --hashed integers
 
 synthSpec :: [Sig] -> IO ()
 synthSpec sigs =
-    do let (givenSig, eq_insts) = sigGivens sig
+    do let (givenSig, eq_insts, arbs) = sigGivens sig
+           int_arbs = IM.fromList $ map (\(tsk,gens) -> (hash (typeSkeletonToTerm tsk), gens)) 
+                                  $ Map.assocs arbs
            sig_ty_cons = Map.keys eq_insts
            complSig = sig <> givenSig
            sig = mconcat sigs
@@ -196,6 +231,10 @@ synthSpec sigs =
        putStrLn "Type constructors in the signature:"
        putStrLn "---------------------------------"
        mapM_ print sig_ty_cons
+       putStrLn ""
+       putStrLn "Variable generators"
+       putStrLn "---------------------------------"
+       mapM_ print (Map.assocs arbs)
        putStrLn ""
 
        -- print $ (Dyn.dynTypeRep . sfFunc) <$> sig
@@ -328,10 +367,11 @@ synthSpec sigs =
                 go' (GoState{current_terms = terms,
                             unique_terms = Map.insert current_ty [wip_rewritten] unique_terms,
                             ..})
+             | Just gt <- hasSubsumption rwrts' int_arbs wip_rewritten = do
+                    -- putStrLn (ppNpTerm wip_rewritten ++ " => " ++ ppNpTerm (npTerm' gt))
+                    skip
              | otherwise = do
                 let other_terms = unique_terms Map.! current_ty
-                    eq_inst = Symbol $ eq_insts Map.! current_ty
-                    termToTest o = Term "(==)" [Term eq_inst [], o, wip_rewritten]
                     terms_to_test = map termToTest other_terms
                 -- putStrLn $ ("Testing: " <> ppNpTerm wip_rewritten
                 --            <> " :: " <> (T.unpack $ ppTy current_ty))
@@ -403,6 +443,8 @@ synthSpec sigs =
                                        current_terms = terms, ..}
                     -- wrt variable renaming
                     simplified = simplifyVars complSig $ npTerm' full_term
+                    eq_inst = Symbol $ eq_insts Map.! current_ty
+                    termToTest o = Term "(==)" [Term eq_inst [], o, wip_rewritten]
                     -- we're probably missing out on some rewrites due to
                     -- us operating on the flipped term
                     (wip_rewritten, rwrts') = (fromMaybe rwrts) <$>
