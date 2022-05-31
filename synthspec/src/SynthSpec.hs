@@ -455,7 +455,16 @@ synthSpec sigs =
                             testAllPar' as [] = firstSuccessful as
                             -- otherwise, we have to start the work (and we check if we've finished anything so far)
                             testAllPar' as (c:cs) = CCA.withAsync (testAll sig c) $ \a -> testAllPar' (a:as) cs
-
+                    testAllInOrderAsync :: Sig -> [Term] -> IO (Maybe Term)
+                    testAllInOrderAsync _ [] = return Nothing
+                    testAllInOrderAsync sig (a:as) =
+                         CCA.withAsync (runTest sig a) $ \aref ->
+                             CCA.withAsync (testAllInOrderAsync sig as) $ \asref -> do
+                                 ares <- CCA.wait aref
+                                 -- if the first one is succesful, we don't care
+                                 -- about the rest!
+                                 if ares then CCA.cancel asref >> return (Just a)
+                                         else CCA.wait asref
 
                 holds <- testAllPar complSig terms_to_test
 
@@ -478,7 +487,7 @@ synthSpec sigs =
                         
                         -- If we don't find a more general law, we use the one
                         -- we found.
-                        most_general <- fromMaybe t <$> testAllPar gsig glaws
+                        most_general <- fromMaybe t <$> testAllInOrderAsync gsig glaws
 
                         -- Note: this should be t, because the variables
                         -- don't exist outside here!
