@@ -426,16 +426,16 @@ synthSpec sigs =
                         in collectStats $ QC.isSuccess <$>
                                            (QC.quickCheckWithResult qc_args' $
                                               dynProp $ termToGen sig Map.empty t)
-                    testAll [] = return Nothing
-                    testAll (t:ts) = do r <- runTest complSig t
-                                        if r then return (Just t)
-                                        else testAll ts
-                    testAllPar :: [Term] -> IO (Maybe Term)
-                    testAllPar [] = return Nothing
-                    testAllPar terms = do n <- CC.getNumCapabilities
-                                          if n >= length terms
-                                          then testAll terms
-                                          else testAllPar' [] $ (chunks ((length terms) `div` n) terms)
+                    testAll sig [] = return Nothing
+                    testAll sig (t:ts) = do r <- runTest sig t
+                                            if r then return (Just t)
+                                            else testAll sig ts
+                    testAllPar :: Sig -> [Term] -> IO (Maybe Term)
+                    testAllPar sig [] = return Nothing
+                    testAllPar sig terms = do n <- CC.getNumCapabilities
+                                              if n >= length terms
+                                              then testAll sig terms
+                                              else testAllPar' [] $ (chunks ((length terms) `div` n) terms)
                       where firstSuccessful :: [CCA.Async (Maybe Term)]  -> IO (Maybe Term)
                             firstSuccessful [] = return Nothing
                             firstSuccessful as = do
@@ -448,15 +448,15 @@ synthSpec sigs =
                             testAllPar' :: [CCA.Async (Maybe Term)] -> [[Term]] -> IO (Maybe Term)
                             -- if there's only one, no need for async
                             testAllPar' [] [] = return Nothing
-                            testAllPar' [] [c] = testAll c
+                            testAllPar' [] [c] = testAll sig c
                             -- if we don't have any more chunks to start, we
                             -- just finish it
                             testAllPar' as [] = firstSuccessful as
                             -- otherwise, we have to start the work (and we check if we've finished anything so far)
-                            testAllPar' as (c:cs) = CCA.withAsync (testAll c) $ \a -> testAllPar' (a:as) cs
+                            testAllPar' as (c:cs) = CCA.withAsync (testAll sig c) $ \a -> testAllPar' (a:as) cs
 
 
-                holds <- testAllPar terms_to_test
+                holds <- testAllPar complSig terms_to_test
 
 
                 case holds of
@@ -466,27 +466,19 @@ synthSpec sigs =
                                               Map.adjust (wip_rewritten:) current_ty unique_terms,
                                             rwrts = rwrts',..}
                     Just t -> do
-                        let (gsig, glaws) = generalizeLaw complSig $ npTerm' t
-                        -- putStrLn $ "Law found: " ++ (ppNpTerm $ npTerm' t)
-                        -- putStrLn "Generalizations:"
-                        -- mapM_ (putStrLn . ppNpTerm . npTerm') glaws
-                        -- putStrLn "---"
-                        laws_that_hold <- 
-                            ((t:) . map fst . filter snd)
-                            <$> CCA.mapConcurrently (\t -> (t,) <$> runTest gsig t)
-                                                    (filter (\l -> hash l /= hash t) glaws)
-                        let most_general =
-                                maximumBy (compare `on`
-                                          (sum . Map.elems . countVars gsig))
-                                          laws_that_hold
-                        -- putStrLn "Laws that hold:"
-                        -- mapM_ (putStrLn . ppNpTerm . npTerm') nlaws
-                        -- putStrLn "---"
-                        let (Term "(==)" [ _
-                                          , lhs@(Term (Symbol lhss) (lht:_))
-                                          , rhs]) = npTerm' most_general
+                        let (gsig, glaws) =
+                              -- We have to be a bit careful about the order
+                              -- of the generalized laws, because we test
+                              -- them in order.
+                              fmap ( reverse
+                                   . sortOn (sum . Map.elems . countVars gsig)
+                                   . filter (\l -> hash l /= hash t)) $
+                                    generalizeLaw complSig $ npTerm' t
+                        
+                        -- If we don't find a more general law, we use the one
+                        -- we found.
+                        most_general <- fromMaybe t <$> testAllPar gsig glaws
 
-                            
                         -- Note: this should be t, because the variables
                         -- don't exist outside here!
                         rwrts'' <- (updateRewrites (Left $ npTerm' t) rwrts')
