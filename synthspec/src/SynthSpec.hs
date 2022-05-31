@@ -81,9 +81,10 @@ hasSmallerRewrite rw@(Rewrite _ rw_mp) t@(Term _ args) =
    _ -> any (hasSmallerRewrite rw) args
 
 generalizedTerm :: IntMap [T.Text] -> Term -> [Term]
-generalizedTerm arbs t@(Term tsy [ty]) =
+generalizedTerm arbs t@(Term (Symbol tsy) [ty]) =
     case arbs IM.!? (hash ty) of
-        Just (sy:_) | tsy /= (Symbol sy) -> [Term (Symbol sy) [ty]]
+        Just li | tsy `L.elem` li -> [t]
+        Just li -> [Term (Symbol sy) [ty] | sy <- li]
         _ -> []
 generalizedTerm arbs t@(Term "app" [ty,f,v]) =
     let gf = (f:generalizedTerm arbs f)
@@ -205,7 +206,8 @@ data GoState = GoState {seen :: IntSet, --hashed integers
                         so_far :: Int,
                         lvl_nums :: [Int],
                         law_nums :: [Int],
-                        current_terms :: [Term]
+                        current_terms :: [Term],
+                        laws_found :: IntSet
                         } deriving (Show)
 
 
@@ -302,7 +304,8 @@ synthSpec sigs =
                                   so_far = 0,
                                   lvl_nums = [1..n],
                                   law_nums = [1..],
-                                  current_terms = []}
+                                  laws_found = IntSet.empty,
+                                  current_terms = [] }
            go' :: GoState -> IO ()
            go' (GoState{ lvl_nums = [],
                         current_terms = [],
@@ -360,15 +363,13 @@ synthSpec sigs =
               -- if there is a possible re-write that's *smaller*, then we can
               -- skip right away, since we'll already have tested that one.
 
-             | hasSmallerRewrite rwrts simplified = skip
+             | hasSmallerRewrite rwrts np_term = skip
              | (hash wip_rewritten) `IntSet.member` seen = skip
-             | isId wip_rewritten = skip
              | not (current_ty `Map.member` unique_terms) =
                 go' (GoState{current_terms = terms,
                             unique_terms = Map.insert current_ty [wip_rewritten] unique_terms,
                             ..})
              | Just gt <- hasSubsumption rwrts' int_arbs wip_rewritten = do
-                    -- putStrLn (ppNpTerm wip_rewritten ++ " => " ++ ppNpTerm (npTerm' gt))
                     skip
              | otherwise = do
                 let other_terms = unique_terms Map.! current_ty
@@ -424,8 +425,11 @@ synthSpec sigs =
                                               Map.adjust (wip_rewritten:) current_ty unique_terms,
                                             rwrts = rwrts',..}
                     Just t -> do
-                        putStrLn ((show n <> ". ") <> (ppNpTerm $ t))
                         let (Term "(==)" [_,lhs@(Term (Symbol lhss) (lht:_)),rhs]) = npTerm' t
+                            -- We want to keep the new uniques around, but if
+                            -- it's essentially the same law we don't want to print it.
+                            law_hash = hash $ simplifyVars complSig $ npTerm' t
+                            laws_found' = IntSet.insert law_hash laws_found
                         -- Find hole-rewrites
                         rwrts'' <- collectStats $ case complSig Map.!? lhss of
                                      Just (GivenFun {given_info = GivenVar {}}) -> do
@@ -434,21 +438,24 @@ synthSpec sigs =
                                          -- updateRewrites (Right (lht, holey)) rwrts'
                                          updateRewrites  (Left $ npTerm' t) rwrts'
                                      _ -> updateRewrites (Left $ npTerm' t) rwrts'
-                        continue rwrts'' ns terms
-              where continue rwrts law_nums terms =
+                        if law_hash `IntSet.member` laws_found
+                        then continue rwrts'' (n:ns) terms laws_found
+                        else do putStrLn ((show n <> ". ") <> (ppNpTerm $ t))
+                                continue rwrts'' ns terms laws_found'
+              where continue rwrts law_nums terms laws_found =
                       go' GoState {seen = (hash wip_rewritten) `IntSet.insert` seen,
                                   so_far=(so_far+1),
                                   current_terms = terms, ..}
                     skip = go' GoState{so_far = so_far+1,
                                        current_terms = terms, ..}
                     -- wrt variable renaming
-                    simplified = simplifyVars complSig $ npTerm' full_term
+                    np_term = npTerm' full_term
                     eq_inst = Symbol $ eq_insts Map.! current_ty
                     termToTest o = Term "(==)" [Term eq_inst [], o, wip_rewritten]
                     -- we're probably missing out on some rewrites due to
                     -- us operating on the flipped term
                     (wip_rewritten, rwrts') = (fromMaybe rwrts) <$>
-                                                badRewrite rwrts simplified
+                                                badRewrite rwrts np_term
        args <- Env.getArgs
        let size = case args of
                     arg:_ | Just n <- TR.readMaybe arg -> n
