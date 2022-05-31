@@ -46,8 +46,9 @@ import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IM
-import Data.Hashable (hash)
+import Data.Hashable (hash, Hashable)
 import qualified Data.List as L
+import Data.Function (on)
 
 -- TODO: make this an e-graph or similar datastructure
 data Rewrite = Rewrite [(Term, Term)] (IntMap Term) deriving (Show)
@@ -94,7 +95,45 @@ generalizedTerm arbs t@(Term "app" [ty,f,v]) =
         Just (sy:_) -> (Term (Symbol sy) [ty]):combs
         _ -> combs
 generalizedTerm _ t = [t] -- shouldn't happend
-            
+   
+generalizeLaw :: Sig -> Term -> (Sig, [Term])
+generalizeLaw sig t@(Term "(==)" [ty,lhs,rhs]) =
+    let (lhsig, lhss) = generalizedLaw' sig lhs
+        (rhsig, rhss) = generalizedLaw' lhsig rhs
+    in (rhsig, 
+            -- We don't want laws that are the same up to renaming
+            nubHash $ map (simplifyVars rhsig) $
+            [Term "(==)" [ty, lhs',rhs'] | lhs' <- lhss, rhs' <- rhss])
+  where var_count = countVars sig t  
+        generalizedLaw' sig c@(Term (Symbol tsy) [ty]) =
+           case sig Map.!? tsy of
+              Just v@(GivenFun (GivenVar {}) grep) ->
+                  let gens = take (var_count Map.! grep) $ moreGenerators v
+                      f (GivenFun v@(GivenVar {}) _) = Just v
+                      f _ = Nothing
+                      gnames = mapMaybe (fmap gvToName . f) gens
+                      gsig = Map.fromList $ zip gnames gens
+                  in (sig <> gsig, [Term (Symbol n) [ty] | n <- gnames] )
+              _ -> (sig, [c])
+        generalizedLaw' sig (Term "app" [ty,f,v]) =
+            let (fsig, fs) = generalizedLaw' sig f 
+                (vsig, vs) = generalizedLaw' fsig v
+            in (vsig, [Term "app" [ty, f',v'] | f' <- fs, v' <- vs])
+
+countVars :: Sig -> Term -> Map TypeSkeleton Int    
+countVars sig (Term (Symbol tsy) [_]) =
+    case sig Map.!? tsy of
+        Just v@(GivenFun (GivenVar _ _ _) grep) -> Map.singleton grep 1
+        _ -> Map.empty
+countVars sig (Term symbol args) =
+    Map.unionsWith (+) $ map (countVars sig) args
+
+nubHash :: Hashable a => [a] -> [a]
+nubHash li = nubHash' IntSet.empty li
+  where nubHash' _ [] = []
+        nubHash' seen (a:as) | (hash a) `IntSet.member` seen = nubHash' seen as
+        nubHash' seen (a:as) = a:(nubHash' (IntSet.insert (hash a) seen) as)
+       
     
 hasSubsumption :: Rewrite -> IntMap [T.Text] -> Term -> Maybe Term
 hasSubsumption rw@(Rewrite _ rw_mp) arbs t@(Term s args) =
@@ -206,8 +245,7 @@ data GoState = GoState {seen :: IntSet, --hashed integers
                         so_far :: Int,
                         lvl_nums :: [Int],
                         law_nums :: [Int],
-                        current_terms :: [Term],
-                        laws_found :: IntSet
+                        current_terms :: [Term]
                         } deriving (Show)
 
 
@@ -304,7 +342,6 @@ synthSpec sigs =
                                   so_far = 0,
                                   lvl_nums = [1..n],
                                   law_nums = [1..],
-                                  laws_found = IntSet.empty,
                                   current_terms = [] }
            go' :: GoState -> IO ()
            go' (GoState{ lvl_nums = [],
@@ -377,16 +414,16 @@ synthSpec sigs =
                 -- putStrLn $ ("Testing: " <> ppNpTerm wip_rewritten
                 --            <> " :: " <> (T.unpack $ ppTy current_ty))
                 let -- No need to run multiple tests if there are no variables!
-                    runTest t =
+                    runTest sig t =
                         -- We test 100x per variable, but for constants we
                         -- need only test once!
-                        let nvs = max (length (termVars complSig t) * 100) 1
+                        let nvs = max (length (termVars sig t) * 100) 1
                             qc_args' = qc_args {QC.maxSuccess = nvs}
                         in collectStats $ QC.isSuccess <$>
                                            (QC.quickCheckWithResult qc_args' $
-                                              dynProp $ termToGen complSig Map.empty t)
+                                              dynProp $ termToGen sig Map.empty t)
                     testAll [] = return Nothing
-                    testAll (t:ts) = do r <- runTest t
+                    testAll (t:ts) = do r <- runTest complSig t
                                         if r then return (Just t)
                                         else testAll ts
                     testAllPar :: [Term] -> IO (Maybe Term)
@@ -425,24 +462,33 @@ synthSpec sigs =
                                               Map.adjust (wip_rewritten:) current_ty unique_terms,
                                             rwrts = rwrts',..}
                     Just t -> do
-                        let (Term "(==)" [_,lhs@(Term (Symbol lhss) (lht:_)),rhs]) = npTerm' t
-                            -- We want to keep the new uniques around, but if
-                            -- it's essentially the same law we don't want to print it.
-                            law_hash = hash $ simplifyVars complSig $ npTerm' t
-                            laws_found' = IntSet.insert law_hash laws_found
-                        -- Find hole-rewrites
-                        rwrts'' <- collectStats $ case complSig Map.!? lhss of
-                                     Just (GivenFun {given_info = GivenVar {}}) -> do
-                                         -- let holey = perforate lhs rhs
-                                         -- putStrLn $ ppNpTerm $ holey
-                                         -- updateRewrites (Right (lht, holey)) rwrts'
-                                         updateRewrites  (Left $ npTerm' t) rwrts'
-                                     _ -> updateRewrites (Left $ npTerm' t) rwrts'
-                        if law_hash `IntSet.member` laws_found
-                        then continue rwrts'' (n:ns) terms laws_found
-                        else do putStrLn ((show n <> ". ") <> (ppNpTerm $ t))
-                                continue rwrts'' ns terms laws_found'
-              where continue rwrts law_nums terms laws_found =
+                        let (gsig, glaws) = generalizeLaw complSig $ npTerm' t
+                        -- putStrLn $ "Law found: " ++ (ppNpTerm $ npTerm' t)
+                        -- putStrLn "Generalizations:"
+                        -- mapM_ (putStrLn . ppNpTerm . npTerm') glaws
+                        -- putStrLn "---"
+                        laws_that_hold <- 
+                            ((t:) . map fst . filter snd)
+                            <$> CCA.mapConcurrently (\t -> (t,) <$> runTest gsig t)
+                                                    (filter (\l -> hash l /= hash t) glaws)
+                        let most_general =
+                                maximumBy (compare `on`
+                                          (sum . Map.elems . countVars gsig))
+                                          laws_that_hold
+                        -- putStrLn "Laws that hold:"
+                        -- mapM_ (putStrLn . ppNpTerm . npTerm') nlaws
+                        -- putStrLn "---"
+                        let (Term "(==)" [ _
+                                          , lhs@(Term (Symbol lhss) (lht:_))
+                                          , rhs]) = npTerm' most_general
+
+                            
+                        -- Note: this should be t, because the variables
+                        -- don't exist outside here!
+                        rwrts'' <- updateRewrites (Left $ npTerm' t) rwrts'
+                        putStrLn ((show n <> ". ") <> (ppNpTerm $ most_general))
+                        continue rwrts'' ns terms
+              where continue rwrts law_nums terms =
                       go' GoState {seen = (hash wip_rewritten) `IntSet.insert` seen,
                                   so_far=(so_far+1),
                                   current_terms = terms, ..}
@@ -531,6 +577,8 @@ ppTy (TFun arg ret) = "(" <> ppTy arg <> " -> " <> ppTy ret <> ")"
 --    speed it up quadratically.
 -- 7. Can we add schemas easily? We can generate ECTAs for them at least.
 -- 8. We should be able to do the "rewrites" by cleverly constructing the ECTAs
+-- 9. Can we generate with *one* type of generator per type, and then *if*
+--    unique we could just generalize it?
 --
 --
 -- Check for equality in the presence of non-total functions, e.g.

@@ -120,7 +120,7 @@ sigGivens sigs = (--eqDef <>
                              $ TCons "Bool" []
         
         consNames :: (TypeSkeleton, Int) -> [(Text, Func)]
-        consNames (t, n) | Just r <- genRep t = g r
+        consNames (t, n) | Just r <- genRep t = take 1 $ g r
                          | otherwise = []
            where g rep = map ((\gf@(GivenFun gv _) -> (gvToName gv, gf)) .
                               (\v -> GivenFun (GivenVar (g_tr rep) v
@@ -253,6 +253,11 @@ data Func = SigFunc { sf_func :: Dynamic
                     , gf_rep :: Maybe TypeSkeleton}
           | GivenFun {given_info :: GivenInfo, giv_rep :: TypeSkeleton}
           deriving (Show)
+
+moreGenerators :: Func -> [Func]
+moreGenerators (GivenFun (GivenVar tr _ g) grep) =
+    map (\v -> (GivenFun (GivenVar tr v g) grep)) [0..]
+moreGenerators _ = []
 
 data GivenInfo where
     GivenDef :: Text -> GivenInfo
