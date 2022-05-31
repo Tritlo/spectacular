@@ -42,6 +42,8 @@ import qualified Type.Reflection as TR
 
 import qualified Data.Monoid as M
 import qualified Test.QuickCheck as QC
+import qualified Data.Set as Set
+import Data.Set (Set)
 
 newtype A = A M.Any deriving (Typeable, Eq, Show, Ord)
 newtype B = B M.Any deriving (Typeable, Eq, Show, Ord)
@@ -65,32 +67,25 @@ data GeneratedInstance = Gend {
     g_li_i :: GeneratedInstance
     }
 
-sigGivens :: Sig -> (Sig, Map TypeSkeleton Text, Map TypeSkeleton [Text])
+sigGivens :: Sig -> (Sig, Map TypeSkeleton Text, Map TypeSkeleton Text)
 sigGivens sigs = (--eqDef <>
-                   Map.fromList (mapMaybe toEqInst (Map.keys allCons)) <>
-                   Map.fromList (mapMaybe toEmptyLi (Map.keys allCons)) <>
-                   Map.fromList (concatMap consNames (Map.assocs allCons))
+                   Map.fromList (mapMaybe toEqInst allCons) <>
+                   Map.fromList (mapMaybe toEmptyLi allCons) <>
+                   Map.fromList (mapMaybe consName allCons)
                  , eq_insts
                  , arbs)
   where trs = map sfTypeRep $ Map.elems sigs
         eq_insts = Map.fromList $ mapMaybe (\c -> ((c,) . fst) <$> toEqInst c)
-                                $ filter isCon $ Map.keys allCons
-        arbs = Map.fromList $ map (\t@(ty,_) -> (ty, map fst $ consNames t))
-                            $ Map.assocs allCons
+                                $ filter isCon allCons
+        arbs = Map.fromList $ mapMaybe (\ty -> ((ty,) . fst) <$> consName ty) allCons
         isCon (TCons _ _) = True
         isCon _ = False
         -- we specialcase lists
-        --cons t@(TCons "[]" r) = Map.unionsWith (+) $ map cons r
-        -- cons t@(TCons "[]" [TCons "[]" [TCons a []]]) = (Map.singleton t (1 :: Int))
-        -- cons t@(TCons "[]" [TCons a []]) = (Map.singleton t (1 :: Int))
-        cons t@(TCons _ r) = Map.unionsWith (+) $
-                                (Map.singleton t (1 :: Int)):(map cons r)
-        cons t@(TFun arg ret) = Map.unionsWith (+) [
-                (Map.singleton t (1 :: Int)),
-                (cons arg),
-                (cons ret)]
-        cons (TVar _) = Map.empty
-        allCons = Map.unionsWith max $ map cons trs
+        cons :: TypeSkeleton -> Set TypeSkeleton
+        cons t@(TCons _ r) = Set.unions $ (Set.singleton t):(map cons r)
+        cons t@(TFun arg ret) = Set.singleton t <> cons arg <> cons ret
+        cons (TVar _) = Set.empty
+        allCons = Set.toList $ Set.unions $ map cons trs
         toEqInst e | Just rep <- genRep e,
                      Just eqf <- g_eq rep = g rep eqf
            where g rep eqf = Just ("<@Eq_"<>(T.pack $ show $ g_tr rep)<>"@>",
@@ -119,12 +114,10 @@ sigGivens sigs = (--eqDef <>
                              $ TFun (TVar "a")
                              $ TCons "Bool" []
         
-        consNames :: (TypeSkeleton, Int) -> [(Text, Func)]
-        consNames (t, n) | Just r <- genRep t = take 1 $ g r
-                         | otherwise = []
-           where g rep = map ((\gf@(GivenFun gv _) -> (gvToName gv, gf)) .
-                              (\v -> GivenFun (GivenVar (g_tr rep) v
-                              (g_arb rep)) t)) [0..(n-1)]
+        consName :: TypeSkeleton -> Maybe (Text, Func)
+        consName t = g <$> genRep t
+           where g rep = toTup (GivenFun (GivenVar (g_tr rep) 0 (g_arb rep)) t) 
+                 toTup gf@(GivenFun gv _) = (gvToName gv, gf)
         
         -- We have show here as well, but could be removed.
         genRepFromProxy :: (Show a, Eq a, Typeable a, Arbitrary a) =>

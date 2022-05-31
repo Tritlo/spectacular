@@ -81,28 +81,32 @@ hasSmallerRewrite rw@(Rewrite _ rw_mp) t@(Term _ args) =
    Just r -> termSize t < termSize r
    _ -> any (hasSmallerRewrite rw) args
 
-generalizedTerm :: IntMap [T.Text] -> Term -> [Term]
+generalizedTerm :: IntMap T.Text -> Term -> [Term]
 generalizedTerm arbs t@(Term (Symbol tsy) [ty]) =
     case arbs IM.!? (hash ty) of
-        Just li | tsy `L.elem` li -> [t]
-        Just li -> [Term (Symbol sy) [ty] | sy <- li]
+        Just el | tsy == el -> [t]
+        Just el -> [Term (Symbol el) [ty]]
         _ -> []
 generalizedTerm arbs t@(Term "app" [ty,f,v]) =
     let gf = (f:generalizedTerm arbs f)
         gv = (v:generalizedTerm arbs v)
         combs = [Term "app" [ty,f',v'] | f' <- gf, v' <- gv]
     in case arbs IM.!? (hash ty) of
-        Just (sy:_) -> (Term (Symbol sy) [ty]):combs
+        Just el -> (Term (Symbol el) [ty]):combs
         _ -> combs
 generalizedTerm _ t = [t] -- shouldn't happend
-   
+  
+-- If there is a law that involves arbitrary xs and ys, it must in particular
+-- also hold whenever xs == ys. So it suffices to explore laws where we have
+-- only a single generator in scope and then generalizing them.
 generalizeLaw :: Sig -> Term -> (Sig, [Term])
 generalizeLaw sig t@(Term "(==)" [ty,lhs,rhs]) =
     let (lhsig, lhss) = generalizedLaw' sig lhs
         (rhsig, rhss) = generalizedLaw' lhsig rhs
-    in (rhsig, 
-            -- We don't want laws that are the same up to renaming
-            nubHash $ map (simplifyVars rhsig) $
+    in (rhsig, -- We don't want laws that are the same up to renaming
+               -- so we remove the ones that are the same after
+               -- simplification of variables
+               nubHash $ map (simplifyVars rhsig) $
             [Term "(==)" [ty, lhs',rhs'] | lhs' <- lhss, rhs' <- rhss])
   where var_count = countVars sig t  
         generalizedLaw' sig c@(Term (Symbol tsy) [ty]) =
@@ -135,7 +139,7 @@ nubHash li = nubHash' IntSet.empty li
         nubHash' seen (a:as) = a:(nubHash' (IntSet.insert (hash a) seen) as)
        
     
-hasSubsumption :: Rewrite -> IntMap [T.Text] -> Term -> Maybe Term
+hasSubsumption :: Rewrite -> IntMap T.Text -> Term -> Maybe Term
 hasSubsumption rw@(Rewrite _ rw_mp) arbs t@(Term s args) =
     L.find (flip IM.member rw_mp . hash) (generalizedTerm arbs t) 
 
@@ -485,7 +489,8 @@ synthSpec sigs =
                             
                         -- Note: this should be t, because the variables
                         -- don't exist outside here!
-                        rwrts'' <- updateRewrites (Left $ npTerm' t) rwrts'
+                        rwrts'' <- (updateRewrites (Left $ npTerm' t) rwrts')
+                                >>= updateRewrites (Left $ npTerm' most_general)
                         putStrLn ((show n <> ". ") <> (ppNpTerm $ most_general))
                         continue rwrts'' ns terms
               where continue rwrts law_nums terms =
