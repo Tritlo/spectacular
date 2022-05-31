@@ -410,8 +410,7 @@ synthSpec sigs =
                 go' (GoState{current_terms = terms,
                             unique_terms = Map.insert current_ty [wip_rewritten] unique_terms,
                             ..})
-             | Just gt <- hasSubsumption rwrts' int_arbs wip_rewritten = do
-                    skip
+             | Just gt <- hasSubsumption rwrts' int_arbs wip_rewritten = skip
              | otherwise = do
                 let other_terms = unique_terms Map.! current_ty
                     terms_to_test = map termToTest other_terms
@@ -562,30 +561,18 @@ ppTy (TCons t r) = t <> (mconcat $ " ":(intersperse " " $ map ppTy r))
 ppTy (TVar v) = v
 ppTy (TFun arg ret) = "(" <> ppTy arg <> " -> " <> ppTy ret <> ")"
 
--- TODO:gg
+-- TODO:
 -- 2. knuth-bendix completion algorithm (we're almost there)
 --    what to do when the size is the same? We want only one way to reduce a term
 --    resolve critical pairs: if a term can be rewritten with two different rules
 --    might not be stable, but we *don't need confluence*. Term indexing:
 --    have a hashtable of the root node. Makes it a lot faster.
--- 3. If we discover that e.g. ((==) xs0_[A]) (((++) []) xs0_[A]), we've found
---    something that is idempotent! Same with e.g. ((==) x0_A) (head (cons x0_A) xs0_[A]),
---    it will always hold for any value of that *type*, (so e.g.
---    ((==) xs0_[A]) (((++) []) xs0_[A]) means that
---    ((==) (concat xss0_[[A]]) (((++) []) (concat xss0_[[A]])) etc etc..
---
---    (See [Note Hole-rewrite]. We also need to capture subsumption i.e.)
---    ((==) x) (cons x (xs)) implies it for all xs, so anything that's there
---    can be replaced.
 -- 4. Look at DbOpt file for examples of how we can apply rewrites directly.
--- 5. All of the optimizations here are useless. Just GENERATING the terms
---    takes almost all of the time, so we need to intervene before that.
--- 6. From QuickSpec: enumerate *terms* instead of *equations*, this should
---    speed it up quadratically.
--- 7. Can we add schemas easily? We can generate ECTAs for them at least.
 -- 8. We should be able to do the "rewrites" by cleverly constructing the ECTAs
--- 9. Can we generate with *one* type of generator per type, and then *if*
---    unique we could just generalize it?
+-- 10. We would like to be able to have things like `reverse :: [a] -> [a]`
+--     in the signature, and have the `a` be instantiated for all the
+--     possible types.
+--
 --
 --
 -- Check for equality in the presence of non-total functions, e.g.

@@ -162,6 +162,8 @@ sigGivens sigs = (--eqDef <>
         genRep (TCons "[]" [ts]) = g_li_i <$> genRep ts
         genRep (TFun (TCons "A" []) (TCons "B" []))
             = Just $ genRepFromProxyNoEq (Proxy :: Proxy (A->B))
+        genRep (TFun (TCons "A" []) (TCons "A" []))
+            = Just $ genRepFromProxyNoEq (Proxy :: Proxy (A->A))
         genRep (TFun _ _) = Nothing
         -- Some special cases for HugeLists
         genRep (TCons "(,)" [TCons "A" [], TCons "B" []]) = Just $ genRepFromProxy (Proxy :: Proxy (A,B))
