@@ -433,9 +433,10 @@ synthSpec sigs =
                     testAllPar :: Sig -> [Term] -> IO (Maybe Term)
                     testAllPar sig [] = return Nothing
                     testAllPar sig terms = do n <- CC.getNumCapabilities
-                                              if n >= length terms
-                                              then testAll sig terms
-                                              else testAllPar' [] $ (chunks ((length terms) `div` n) terms)
+                                              if n == 1 then testAll sig terms
+                                              else if n >= length terms
+                                                  then testAllPar' [] $ map (:[]) terms
+                                                  else testAllPar' [] $ (chunks ((length terms) `div` n) terms)
                       where firstSuccessful :: [CCA.Async (Maybe Term)]  -> IO (Maybe Term)
                             firstSuccessful [] = return Nothing
                             firstSuccessful as = do
