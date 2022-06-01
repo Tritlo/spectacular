@@ -458,6 +458,7 @@ synthSpec sigs =
                        lvl_nums = lvl_nums@(lvl:_),..}
               -- if there is a possible re-write that's *smaller*, then we can
               -- skip right away, since we'll already have tested that one.
+             | (hash $ np_term) `IntSet.member` seen = skip
              | not (current_ty `Map.member` unique_terms) =
                 go' (GoState{current_terms = terms,
                             unique_terms = Map.insert current_ty [wip_rewritten] unique_terms,
@@ -526,16 +527,16 @@ synthSpec sigs =
                                                  return (Just a)
                                          else CCA.wait asref
 
-                refreshCount ("exploring " ++ (T.unpack $ ppTy current_ty))
-                             (" (" ++ (show $ length terms) ++ " left at this size)")
+                refreshCount ("exploring " ++ (T.unpack $ ppTy current_ty)) ""
+                             -- (" (" ++ (show $ length terms) ++ " left at this size)")
                              ("(" ++ (show $ length terms_to_test) ++ " to test...)") lvl so_far
                 holds <- testAllPar eq_inst complSig terms_to_test
 
 
                 let sf' = so_far + 1
                 case holds of
-                    Nothing -> do refreshCount "exploring"
-                                               (" (" ++ (show $ length terms) ++ " left at this size)")
+                    Nothing -> do refreshCount "exploring" ""
+                                               -- (" (" ++ (show $ length terms) ++ " left at this size)")
                                                
                                                "" lvl sf'
                                   go' GoState { so_far = sf',
@@ -577,16 +578,16 @@ synthSpec sigs =
                         let law_str = (show n <> ". ") <> (ppNpTerm $ most_general)
                             lsl = max 0 (80 - length law_str)
                         putStrLn ("\r" ++ law_str ++ replicate lsl ' ')
-                        refreshCount  ("exploring " ++ (T.unpack $ ppTy current_ty)) 
-                                      (" (" ++ (show $ length terms) ++ " left at this size)")
+                        refreshCount  ("exploring " ++ (T.unpack $ ppTy current_ty))  ""
+                                      -- (" (" ++ (show $ length terms) ++ " left at this size)")
                                        "" lvl sf'
                         continue sf' rwrts'' ns terms
               where continue sf' rwrts law_nums terms =
-                      go' GoState {seen = (hash $ canonicalize complSig wip_rewritten) `IntSet.insert` seen,
+                      go' GoState {seen = seen <> IntSet.fromList (map hash [canonicalize complSig wip_rewritten, np_term]),
                                   so_far=sf',
                                   current_terms = terms, ..}
-                    skip = do refreshCount ("exploring " ++ (T.unpack $ ppTy current_ty))
-                                           (" (" ++ (show $ length terms) ++ " left at this size)")
+                    skip = do refreshCount ("exploring " ++ (T.unpack $ ppTy current_ty)) ""
+                                           -- (" (" ++ (show $ length terms) ++ " left at this size)")
                                            ("(skipped `" ++ (ppNpTerm np_term) ++ "`)")
                                           lvl (so_far + 1)
                               go' GoState{so_far = so_far+1,
@@ -679,10 +680,6 @@ ppTy (TFun arg ret) = "(" <> ppTy arg <> " -> " <> ppTy ret <> ")"
 --    have a hashtable of the root node. Makes it a lot faster.
 -- 4. Look at DbOpt file for examples of how we can apply rewrites directly.
 -- 8. We should be able to do the "rewrites" by cleverly constructing the ECTAs
--- 10. We would like to be able to have things like `reverse :: [a] -> [a]`
---     in the signature, and have the `a` be instantiated for all the
---     possible types.
---
 --
 --
 -- Check for equality in the presence of non-total functions, e.g.
