@@ -67,15 +67,15 @@ data GeneratedInstance = Gend {
     g_li_i :: GeneratedInstance
     }
 
-sigGivens :: Sig -> (Sig, Map TypeSkeleton Text, Map TypeSkeleton Text)
+sigGivens :: Sig -> (Sig, Map TypeSkeleton (Text, Dynamic), Map TypeSkeleton Text)
 sigGivens sigs = (--eqDef <>
-                   Map.fromList (mapMaybe toEqInst allCons) <>
+                   -- Map.fromList (mapMaybe toEqInst allCons) <>
                    Map.fromList (mapMaybe toEmptyLi allCons) <>
                    Map.fromList (mapMaybe consName allCons)
                  , eq_insts
                  , arbs)
   where trs = map sfTypeRep $ Map.elems sigs
-        eq_insts = Map.fromList $ mapMaybe (\c -> ((c,) . fst) <$> toEqInst c)
+        eq_insts = Map.fromList $ mapMaybe (\c -> ((c,) . fmap sfFunc) <$> toEqInst c)
                                 $ filter isCon allCons
         arbs = Map.fromList $ mapMaybe (\ty -> ((ty,) . fst) <$> consName ty) allCons
         isCon (TCons _ _) = True
@@ -318,7 +318,8 @@ sfFunc :: Func -> Dynamic
 sfFunc (SigFunc {..}) = sf_func
 sfFunc (GenFunc {..}) = gf_func
 -- Should not happen
-sfFunc (GivenFun {}) = toDyn (()::())
+sfFunc (GivenFun {given_info = GivenInst _ inst_f}) = inst_f
+sfFunc (GivenFun {}) = toDyn (() :: ()) 
 
 sfRequired :: Func -> Bool
 sfRequired (SigFunc {}) = True
@@ -406,28 +407,42 @@ simplifyVars sig term = simplified
                             whatOrder with_fewer_vars
         simplified = renameSymbols reordered_vars with_fewer_vars
 
-        
+generalizeType :: TypeSkeleton -> TypeSkeleton
+generalizeType (TCons s []) | s `elem` ["A","B","C","D","Acc"]
+    = TVar (T.pack $ map toLower $ T.unpack s)
+generalizeType (TCons s r) = TCons s $ map generalizeType r
+generalizeType (TFun arg ret) = TFun (generalizeType arg) (generalizeType ret)
+generalizeType tsk = tsk
+ 
+-- When we generalize types, the types of the functions don't match, but
+-- since we can coerce between A and B etc. we can actually apply the
+-- function. In case the coerce is *wrong*, this error will be inside
+-- the generator and so unobservable.
+unsafeApply :: Dynamic -> Dynamic -> Dynamic
+unsafeApply df@(Dynamic (TR.Fun _ tr) f) dx@(Dynamic _ x)
+ = case dynApply df dx of
+    Just r -> r
+    _ -> Dynamic (unsafeCoerce tr) (unsafeCoerce f x)
 
 
 -- Note: should be npTermed
-termToGen :: Sig -> VarVals -> Term -> Gen Dynamic
-termToGen sig init_vv (Term "(==)" [eq_i, a_g, b_g])
+termToGen :: Dynamic -> Sig -> VarVals -> Term -> Gen Dynamic
+termToGen eq_inst sig init_vv (Term "(==)" [eq_i, a_g, b_g])
     | a_g == b_g = return (toDyn True) -- short-circuit the trivial case
     | otherwise =
-    do eq <- termToGen sig Map.empty eq_i
-       vv <- if Map.null init_vv
+    do vv <- if Map.null init_vv
              then do vva <- getVars sig a_g
                      vvb <- getVars sig b_g
                      return (vva <> vvb)
              else return init_vv
-       a  <- termToGen sig vv a_g
-       b  <- termToGen sig vv b_g
-       return $ fromJust $ dynApply (fromJust $ dynApply eq a) b
-termToGen sig vv (Term "app" [_,f_g,v_g]) = do
-  f <- termToGen sig vv f_g
-  v <- termToGen sig vv v_g
-  return $ fromJust (dynApply f v)
-termToGen sig vv (Term (Symbol sym) _) = do
+       a  <- termToGen eq_inst sig vv a_g
+       b  <- termToGen eq_inst sig vv b_g
+       return $ unsafeApply (unsafeApply eq_inst a) b
+termToGen eq_inst sig vv (Term "app" [_,f_g,v_g]) = do
+  f <- termToGen eq_inst sig vv f_g
+  v <- termToGen eq_inst sig vv v_g
+  return $ unsafeApply f v
+termToGen _ sig vv (Term (Symbol sym) _) = do
   case sig Map.!? sym of 
    Just (GivenFun {given_info = GivenVar _ _ _}) ->
         case vv Map.!? sym of

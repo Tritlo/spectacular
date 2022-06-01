@@ -14,6 +14,7 @@ import Data.Map.Strict (Map)
 -- import qualified Data.Map as Map
 -- import Data.Map (Map)
 import qualified Data.Dynamic as Dyn
+import Data.Dynamic (Dynamic)
 import qualified Data.Bifunctor as Bi
 import MonadUtils (concatMapM)
 import SynthSpec.Types
@@ -417,25 +418,29 @@ synthSpec sigs =
                 -- putStrLn $ ("Testing: " <> ppNpTerm wip_rewritten
                 --            <> " :: " <> (T.unpack $ ppTy current_ty))
                 let -- No need to run multiple tests if there are no variables!
-                    runTest sig t =
+                    runTest eq_inst sig t =
                         -- We test 100x per variable, but for constants we
                         -- need only test once!
                         let nvs = max (length (termVars sig t) * 100) 1
                             qc_args' = qc_args {QC.maxSuccess = nvs}
                         in collectStats $ QC.isSuccess <$>
                                            (QC.quickCheckWithResult qc_args' $
-                                              dynProp $ termToGen sig Map.empty t)
-                    testAll sig [] = return Nothing
-                    testAll sig (t:ts) = do r <- runTest sig t
-                                            if r then return (Just t)
-                                            else testAll sig ts
-                    testAllPar :: Sig -> [Term] -> IO (Maybe Term)
-                    testAllPar sig [] = return Nothing
-                    testAllPar sig terms = do n <- CC.getNumCapabilities
-                                              if n == 1 then testAll sig terms
-                                              else if n >= length terms
-                                                  then testAllPar' [] $ map (:[]) terms
-                                                  else testAllPar' [] $ (chunks ((length terms) `div` n) terms)
+                                              dynProp $ termToGen eq_inst sig Map.empty t)
+                    testAll :: Dynamic -> Sig -> [Term] -> IO (Maybe Term)
+                    testAll eq_inst sig [] = return Nothing
+                    testAll eq_inst sig (t:ts) =
+                        do r <- runTest eq_inst sig t
+                           if r then return (Just t)
+                           else testAll eq_inst sig ts
+                    testAllPar :: Dynamic -> Sig -> [Term] -> IO (Maybe Term)
+                    testAllPar eq_inst sig [] = return Nothing
+                    testAllPar eq_inst sig terms =
+                      do n <- CC.getNumCapabilities
+                         if n == 1 
+                         then testAll eq_inst sig terms
+                         else if n >= length terms
+                              then testAllPar' [] $ map (:[]) terms
+                              else testAllPar' [] $ (chunks ((length terms) `div` n) terms)
                       where firstSuccessful :: [CCA.Async (Maybe Term)]  -> IO (Maybe Term)
                             firstSuccessful [] = return Nothing
                             firstSuccessful as = do
@@ -445,27 +450,31 @@ synthSpec sigs =
                                         Just _ -> do mapM CCA.cancel as'
                                                      return r
                                         _ -> firstSuccessful as'
-                            testAllPar' :: [CCA.Async (Maybe Term)] -> [[Term]] -> IO (Maybe Term)
+                            testAllPar' :: [CCA.Async (Maybe Term)]
+                                        -> [[Term]] -> IO (Maybe Term)
                             -- if there's only one, no need for async
                             testAllPar' [] [] = return Nothing
-                            testAllPar' [] [c] = testAll sig c
+                            testAllPar' [] [c] = testAll eq_inst sig c
                             -- if we don't have any more chunks to start, we
                             -- just finish it
                             testAllPar' as [] = firstSuccessful as
                             -- otherwise, we have to start the work (and we check if we've finished anything so far)
-                            testAllPar' as (c:cs) = CCA.withAsync (testAll sig c) $ \a -> testAllPar' (a:as) cs
-                    testAllInOrderAsync :: Sig -> [Term] -> IO (Maybe Term)
-                    testAllInOrderAsync _ [] = return Nothing
-                    testAllInOrderAsync sig (a:as) =
-                         CCA.withAsync (runTest sig a) $ \aref ->
-                             CCA.withAsync (testAllInOrderAsync sig as) $ \asref -> do
+                            testAllPar' as (c:cs) = 
+                                CCA.withAsync (testAll eq_inst sig c) $
+                                    \a -> testAllPar' (a:as) cs
+                    testAllInOrderAsync :: Dynamic -> Sig -> [Term] -> IO (Maybe Term)
+                    testAllInOrderAsync _ _ [] = return Nothing
+                    testAllInOrderAsync eq_inst sig (a:as) =
+                         CCA.withAsync (runTest eq_inst sig a) $ \aref ->
+                             CCA.withAsync (testAllInOrderAsync eq_inst sig as) $ \asref -> do
                                  ares <- CCA.wait aref
                                  -- if the first one is succesful, we don't care
                                  -- about the rest!
-                                 if ares then CCA.cancel asref >> return (Just a)
+                                 if ares then do CCA.cancel asref
+                                                 return (Just a)
                                          else CCA.wait asref
 
-                holds <- testAllPar complSig terms_to_test
+                holds <- testAllPar eq_inst complSig terms_to_test
 
 
                 case holds of
@@ -486,7 +495,7 @@ synthSpec sigs =
                         
                         -- If we don't find a more general law, we use the one
                         -- we found.
-                        most_general <- fromMaybe t <$> testAllInOrderAsync gsig glaws
+                        most_general <- fromMaybe t <$> testAllInOrderAsync eq_inst gsig glaws
 
                         -- Note: this should be t, because the variables
                         -- don't exist outside here!
@@ -502,8 +511,9 @@ synthSpec sigs =
                                        current_terms = terms, ..}
                     -- wrt variable renaming
                     np_term = npTerm' full_term
-                    eq_inst = Symbol $ eq_insts Map.! current_ty
-                    termToTest o = Term "(==)" [Term eq_inst [], o, wip_rewritten]
+                    (eq_txt, eq_inst) = eq_insts Map.! current_ty
+                    termToTest o = Term "(==)" [ Term (Symbol eq_txt) []
+                                               , o, wip_rewritten]
                     -- we're probably missing out on some rewrites due to
                     -- us operating on the flipped term
                     (wip_rewritten, rwrts') = (fromMaybe rwrts) <$>
