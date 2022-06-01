@@ -414,6 +414,7 @@ synthSpec sigs =
                         current_terms = [],..} = do
             --putStrLn ("Checking " ++ (T.unpack $ ppTy tc) ++ " with size " ++ show lvl_num ++ "...")
 
+            refreshCount "generating ECTA for" "" lvl_num so_far
             let toText e = T.pack $ ppNpTerm $ npTerm e
                 unique_args = concatMap (\(t,es) -> map ((,typeToFta t) . Symbol . toText ) es)
                                 $ Map.assocs unique_terms
@@ -510,12 +511,13 @@ synthSpec sigs =
                                                  return (Just a)
                                          else CCA.wait asref
 
+                refreshCount "testing" ("(" ++ (show $ length terms_to_test) ++ " to test...)") lvl so_far
                 holds <- testAllPar eq_inst complSig terms_to_test
 
 
                 let sf' = so_far + 1
                 case holds of
-                    Nothing -> do refreshCount lvl sf'
+                    Nothing -> do refreshCount "exploring" "" lvl sf'
                                   go' GoState { so_far = sf',
                                                 current_terms = terms,
                                                 unique_terms =
@@ -549,13 +551,13 @@ synthSpec sigs =
                         let law_str = (show n <> ". ") <> (ppNpTerm $ most_general)
                             lsl = max 0 (80 - length law_str)
                         putStrLn ("\r" ++ law_str ++ replicate lsl ' ')
-                        refreshCount lvl sf'
+                        refreshCount "exploring" "" lvl sf'
                         continue sf' rwrts'' ns terms
               where continue sf' rwrts law_nums terms =
                       go' GoState {seen = (hash $ canonicalize complSig wip_rewritten) `IntSet.insert` seen,
                                   so_far=sf',
                                   current_terms = terms, ..}
-                    skip = do refreshCount lvl (so_far + 1)
+                    skip = do refreshCount "exploring" "" lvl (so_far + 1)
                               go' GoState{so_far = so_far+1,
                                           current_terms = terms, ..}
                     -- wrt variable renaming
@@ -618,10 +620,13 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
         parIfReq s@(c:_) | c /= '(', c /= '[', not (isAlphaNum c) = "("<>s<>")"
         parIfReq s = s
 
-refreshCount :: Int -> Int -> IO ()
-refreshCount size i = putStr ("\r\ESC[K"
-                    ++ "exploring terms of size " ++ show size
-                    ++ ", " ++ show i ++ " examined so far.\r") >> flushStdHandles
+refreshCount :: String -> String -> Int -> Int -> IO ()
+refreshCount pre post size i = putStr (o ++ fill ++ "\r") >> flushStdHandles
+  where o = "\r\ESC[K"
+            ++ pre ++ " terms of size " ++ show size
+            ++ ", " ++ show i ++ " examined so far. "
+            ++ post
+        fill = replicate (max 0 (length o - 80)) ' '
 
 ppTy :: TypeSkeleton -> T.Text
 ppTy (TCons t []) = t
