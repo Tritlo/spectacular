@@ -158,6 +158,7 @@ hasSubsCanon sig rw@(Rewrite _ rw_mp) arbs t@(Term s args) =
             . canonicalize sig) (generalizedTerm arbs $ canonicalize sig t) 
 
 hasAnySub :: Rewrite -> Term -> Bool
+-- TODO: this is a LINEAR scan, we should be able to do a lot better.
 hasAnySub rw@(Rewrite seen _) t | any (termHoleEq $ dropNpTypes t) seen = True
   where -- Equality on terms based on holes
         termHoleEq :: Term -> Term -> Bool
