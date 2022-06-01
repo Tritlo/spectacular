@@ -38,6 +38,7 @@ module Data.ECTA.Internal.ECTA.Enumeration (
 
   , getAllTruncatedTerms
   , getAllTerms
+  , getAllTermsPrune
   , naiveDenotation
   , naiveDenotationBounded
   ) where
@@ -45,7 +46,7 @@ module Data.ECTA.Internal.ECTA.Enumeration (
 import Control.Monad ( forM_, guard )
 import Control.Monad.State.Strict ( StateT(..) )
 import qualified Data.IntMap as IntMap
-import Data.Maybe ( fromMaybe, isJust )
+import Data.Maybe ( fromMaybe, isJust, mapMaybe )
 import Data.Monoid ( Any(..) )
 import Data.Semigroup ( Max(..) )
 import           Data.Sequence ( Seq((:<|), (:|>)) )
@@ -262,15 +263,19 @@ refreshReferencedUVars = do
 ---------------------
 -------- Core enumeration algorithm
 ---------------------
+--
 
 enumerateNode :: Seq SuspendedConstraint -> Node -> EnumerateM TermFragment
-enumerateNode _   EmptyNode = mzero
-enumerateNode scs n         =
+enumerateNode = enumerateNode' False
+
+enumerateNode' :: Bool -> Seq SuspendedConstraint -> Node -> EnumerateM TermFragment
+enumerateNode' _ _   EmptyNode = mzero
+enumerateNode' eager_suspend scs n         =
   let (hereConstraints, descendantConstraints) = Sequence.partition (\(SuspendedConstraint pt _) -> isTerminalPathTrie pt) scs
   in case hereConstraints of
        Sequence.Empty -> case n of
                            Mu _    -> TermFragmentUVar <$> addUVarValue (Just n)
-                           Node es -> enumerateEdge scs =<< lift es
+                           Node es -> enumerateEdge' eager_suspend scs =<< lift es
                            _       -> error $ "enumerateNode: unexpected node " <> show n
 
        (x :<| xs)     -> do reps <- mapM (getUVarRepresentative . scGetUVar) hereConstraints
@@ -282,13 +287,16 @@ enumerateNode scs n         =
                             return $ TermFragmentUVar uv
 
 enumerateEdge :: Seq SuspendedConstraint -> Edge -> EnumerateM TermFragment
-enumerateEdge scs e = do
+enumerateEdge = enumerateEdge' False
+
+enumerateEdge' :: Bool -> Seq SuspendedConstraint -> Edge -> EnumerateM TermFragment
+enumerateEdge' eager_suspend scs e = do
   let highestConstraintIndex = getMax $ foldMap (\sc -> Max $ fromMaybe (-1) $ getMaxNonemptyIndex $ scGetPathTrie sc) scs
   guard $ highestConstraintIndex < length (edgeChildren e)
 
   newScs <- Sequence.fromList <$> mapM pecToSuspendedConstraint (unsafeGetEclasses $ edgeEcs e)
   let scs' = scs <> newScs
-  TermFragmentNode (edgeSymbol e) <$> imapM (\i n -> enumerateNode (descendScs i scs') n) (edgeChildren e)
+  TermFragmentNode (edgeSymbol e) <$> imapM (\i n -> enumerateNode' eager_suspend (descendScs i scs') n) (edgeChildren e)
 
 
 ---------------------
@@ -330,18 +338,22 @@ firstExpandableUVar = do
 
 
 
+enumerateOutUVar' :: Bool -> UVar -> EnumerateM TermFragment
+enumerateOutUVar' eager_suspend uv =
+    do UVarUnenumerated (Just n) scs <- getUVarValue uv
+       uv' <- getUVarRepresentative uv
+
+       t <- case n of
+              Mu _ -> enumerateNode' eager_suspend scs (unfoldOuterRec n)
+              _    -> enumerateNode' eager_suspend scs n
+
+
+       uvarValues.(ix $ uvarToInt uv') .= UVarEnumerated t
+       refreshReferencedUVars
+       return t
+
 enumerateOutUVar :: UVar -> EnumerateM TermFragment
-enumerateOutUVar uv = do UVarUnenumerated (Just n) scs <- getUVarValue uv
-                         uv' <- getUVarRepresentative uv
-
-                         t <- case n of
-                                Mu _ -> enumerateNode scs (unfoldOuterRec n)
-                                _    -> enumerateNode scs n
-
-
-                         uvarValues.(ix $ uvarToInt uv') .= UVarEnumerated t
-                         refreshReferencedUVars
-                         return t
+enumerateOutUVar = enumerateOutUVar' False
 
 enumerateOutFirstExpandableUVar :: EnumerateM ()
 enumerateOutFirstExpandableUVar = do
@@ -352,18 +364,23 @@ enumerateOutFirstExpandableUVar = do
     ExpansionStuck   -> mzero
 
 enumerateFully :: EnumerateM ()
-enumerateFully = do
+enumerateFully  = enumerateFully' False (const False)
+
+enumerateFully' :: Bool -> (Node -> Bool) -> EnumerateM ()
+enumerateFully' eager_suspend shouldPrune = do
   muv <- firstExpandableUVar
   case muv of
     ExpansionStuck   -> mzero
     ExpansionDone    -> return ()
     ExpansionNext uv -> do UVarUnenumerated (Just n) scs <- getUVarValue uv
-                           if scs == Sequence.Empty then
-                             case n of
-                               Mu _ -> return ()
-                               _    -> enumerateOutUVar uv >> enumerateFully
-                            else
-                             enumerateOutUVar uv >> enumerateFully
+                           if shouldPrune n then return () 
+                           else if scs == Sequence.Empty then
+                                    case n of
+                                        Mu _ -> return ()
+                                        _    -> enumerateOutUVar' eager_suspend uv 
+                                             >> enumerateFully' eager_suspend shouldPrune
+                                    else enumerateOutUVar' eager_suspend uv
+                                      >> enumerateFully' eager_suspend shouldPrune
 
 ---------------------
 -------- Expanding an enumerated term fragment into a term
@@ -371,11 +388,14 @@ enumerateFully = do
 
 expandTermFrag :: TermFragment -> EnumerateM Term
 expandTermFrag (TermFragmentNode s ts) = Term s <$> mapM expandTermFrag ts
-expandTermFrag (TermFragmentUVar uv)   = do val <- getUVarValue uv
-                                            case val of
-                                              UVarEnumerated t                 -> expandTermFrag t
-                                              UVarUnenumerated (Just (Mu _)) _ -> return $ Term "Mu" []
-                                              _                                -> error "expandTermFrag: Non-recursive, unenumerated node encountered"
+expandTermFrag (TermFragmentUVar uv)  =
+    do val <- getUVarValue uv
+       case val of
+        UVarEnumerated t                 -> expandTermFrag t
+        UVarUnenumerated (Just (Mu _)) _ -> return $ Term "Mu" []
+        -- TODO: here it will be the suspended one.
+        _                                -> 
+            error "expandTermFrag: Non-recursive, unenumerated node encountered"
 
 expandUVar :: UVar -> EnumerateM Term
 expandUVar uv = do UVarEnumerated t <- getUVarValue uv
@@ -392,10 +412,19 @@ getAllTruncatedTerms n = map (termFragToTruncatedTerm . fst) $
                            enumerateFully
                            getTermFragForUVar (intToUVar 0)
 
+getAllTermsPrune :: (Node -> Bool) -> Node -> [Term]
+getAllTermsPrune shouldPrune n =
+    mapMaybe fst $ flip runEnumerateM (initEnumerationState n) $ do
+                            enumerateFully' True shouldPrune
+                            uv <- getUVarValue (intToUVar 0)
+                            -- If we pruned the branch it won't have been
+                            -- fully enumerated, so we return nothing.
+                            case uv of
+                                UVarEnumerated t -> Just <$> expandTermFrag t
+                                _ -> return Nothing
+
 getAllTerms :: Node -> [Term]
-getAllTerms n = map fst $ flip runEnumerateM (initEnumerationState n) $ do
-                  enumerateFully
-                  expandUVar (intToUVar 0)
+getAllTerms = getAllTermsPrune (const True)
 
 
 -- | Inefficient enumeration

@@ -445,8 +445,9 @@ synthSpec sigs =
 
 
             rewritten <- applyRewrites rwrts filtered_and_reduced
-            let terms = getAllTerms rewritten
-            -- mapM_ (putStrLn . ppNpTerm . npTerm') terms
+            let oracle _ = even lvl_num
+                terms = getAllTermsPrune oracle rewritten
+            mapM_ (putStrLn . ppNpTerm . npTerm') terms
             -- putStrLn "\rGenerating terms...                   "
             -- print (show $ length terms)
             -- putStrLn "-------"
@@ -654,7 +655,7 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
         parIfReq s = s
 
 refreshCount :: String -> String -> String -> Int -> Int -> IO ()
--- refreshCount _ _ _ _ _ = return ()
+refreshCount _ _ _ _ _ = return ()
 refreshCount pre mid post size i = putStr (o ++ fill ++ "\r") >> flushStdHandles
   where o' = "\r\ESC[K"
             ++ pre ++ " terms of size " ++ show size
