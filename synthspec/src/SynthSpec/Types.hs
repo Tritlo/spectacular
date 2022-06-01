@@ -420,8 +420,8 @@ dropNpTypes (Term s args) = Term s $ map dropNpTypes args
 unifyAllVars :: Sig -> Term -> Term
 unifyAllVars sig (Term (Symbol s) _) |
     Just (GivenFun {given_info=gv@GivenVar {}}) <- sig Map.!? s = 
-        -- Term "_" []
-        Term (Symbol $ gvToNameNoType gv) []
+        Term "<_>" []
+        -- Term (Symbol $ gvToNameNoType gv) []
 unifyAllVars sig (Term s args) = Term s $ map (unifyAllVars sig) args
 
  

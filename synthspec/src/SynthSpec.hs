@@ -52,12 +52,12 @@ import qualified Data.List as L
 import Data.Function (on)
 
 -- TODO: make this an e-graph or similar datastructure
-data Rewrite = Rewrite [(Term, Term)] (IntMap Term) deriving (Show)
+data Rewrite = Rewrite [Term] (IntMap Term) deriving (Show)
 
 rwrMap :: Rewrite -> IntMap Term
 rwrMap (Rewrite _ r) = r
 
-updateRewrites :: Either Term (Term,Term) -> Rewrite -> IO Rewrite
+updateRewrites :: Either Term Term -> Rewrite -> IO Rewrite
 updateRewrites (Left (Term "(==)" [_,a,b])) rw =
     return $ updRw a b rw
 updateRewrites (Right hole_rule) (Rewrite holeRules mp) =
@@ -146,6 +146,7 @@ countVars sig (Term (Symbol tsy) [_]) =
 countVars sig (Term symbol args) =
     Map.unionsWith (+) $ map (countVars sig) args
 
+
     
 hasSubsumption :: Rewrite -> IntMap T.Text -> Term -> Maybe Term
 hasSubsumption rw@(Rewrite _ rw_mp) arbs t@(Term s args) =
@@ -155,6 +156,18 @@ hasSubsCanon :: Sig -> Rewrite -> IntMap T.Text -> Term -> Maybe Term
 hasSubsCanon sig rw@(Rewrite _ rw_mp) arbs t@(Term s args) =
     L.find (flip IM.member rw_mp . hash
             . canonicalize sig) (generalizedTerm arbs $ canonicalize sig t) 
+
+hasAnySub :: Rewrite -> Term -> Bool
+hasAnySub rw@(Rewrite seen _) t | any (termHoleEq $ dropNpTypes t) seen = True
+  where -- Equality on terms based on holes
+        termHoleEq :: Term -> Term -> Bool
+        termHoleEq (Term "<_>" _) _ = True
+        termHoleEq  _ (Term "<_>" _) = True
+        termHoleEq t1@(Term s1 a1) t2@(Term s2 a2) = 
+            hash t1 == hash t2 || ( s1 == s2 && length a1 == length a2
+                                    && all (uncurry termHoleEq) (zip a1 a2))
+hasAnySub rw@(Rewrite seen _) (Term _ (_:args)) = any (hasAnySub rw) args
+hasAnySub _ _ = False
 
 typeSkeletonToTerm :: TypeSkeleton -> Term
 typeSkeletonToTerm (TCons s args) 
@@ -202,7 +215,7 @@ updRw a b (Rewrite hole_rules mp) =
                                          then (a,b)
                                          else (b,a)
                                     else (b,a)
-    in traceShow (ppNpTerm big ++ " ==> " ++ ppNpTerm sml) $
+    in -- traceShow (ppNpTerm big ++ " ==> " ++ ppNpTerm sml) $
        Rewrite hole_rules (IM.insert (hash big) sml mp)
 
 applyRewrites :: Rewrite -> Node -> IO Node
@@ -428,6 +441,7 @@ synthSpec sigs =
              | Just gt <- hasSubsumption rwrts' int_arbs wip_rewritten = skip
              | (npc,r3) <- badRewrite rwrts' (canonicalize complSig np_term),
                Just gt <- hasSubsCanon sig rwrts' simpl_int_arbs npc = skip
+             | hasAnySub rwrts' np_term = skip
              | otherwise = do
                 let other_terms = unique_terms Map.! current_ty
                     terms_to_test = map termToTest other_terms
@@ -515,20 +529,18 @@ synthSpec sigs =
                         -- If we don't find a more general law, we use the one
                         -- we found.
                         most_general <- fromMaybe t <$> testAllInOrderAsync eq_inst gsig glaws
+                        let (Term "(==)" [_,_,mgrhs]) = canonicalize gsig most_general
 
                         -- Note: this should be t, because the variables
                         -- don't exist outside here!
-                        rwrts'' <- do let npt = npTerm' t
+                        rwrts''@(Rewrite s _)
+                                <- do let npt = npTerm' t
                                       r1 <- updateRewrites (Left $ npt) rwrts'
                                       let npmg = npTerm' most_general
                                       r2 <- if npt /= npmg
                                             then updateRewrites (Left npmg) r1
                                             else return r1
-                                      let npc = npTerm' $ canonicalize gsig npt
-                                      if npc /= npt && npc /= npmg
-                                      then updateRewrites (Left npc) r2
-                                      else return r2
-
+                                      updateRewrites (Right mgrhs) r2
                         putStrLn ((show n <> ". ") <> (ppNpTerm $ most_general))
                         continue rwrts'' ns terms
               where continue rwrts law_nums terms =
