@@ -50,6 +50,7 @@ import qualified Data.IntMap.Strict as IM
 import Data.Hashable (hash, Hashable)
 import qualified Data.List as L
 import Data.Function (on)
+import GHC.TopHandler
 
 -- TODO: make this an e-graph or similar datastructure
 data Rewrite = Rewrite [Term] (IntMap Term) deriving (Show)
@@ -393,9 +394,9 @@ synthSpec sigs =
                          lvl_nums = (lvl_num:lvl_nums),
                          current_terms = [],
                          ..}) = do
-            putStrLn (show so_far ++ " terms examined so far")
-            putStrLn $ show (sum $ map (length) $ Map.elems unique_terms) ++ " unique terms discovered."
-            putStrLn ("Looking for exprs with " ++ show (lvl_num+1) ++ " terms...")
+            -- let str = ("\r" ++ show so_far ++ " terms examined so far")
+            -- putStrLn (str ++ replicate (max 0 (80 - length str)) ' ')
+            -- putStrLn $ show (sum $ map (length) $ Map.elems unique_terms) ++ " unique terms discovered."
             -- If we find any rewrites for the scope, we apply them here.
             -- when (not (null (rwrMap rwrts))) $ do
             --   putStrLn "Current rewrites:"
@@ -428,7 +429,8 @@ synthSpec sigs =
                         type_cons = tcs,
                         current_ty = tc,..}
            go' GoState{law_nums = law_nums@(n:ns),
-                       current_terms = (full_term:terms), ..}
+                       current_terms = (full_term:terms),
+                       lvl_nums = lvl_nums@(lvl:_),..}
               -- if there is a possible re-write that's *smaller*, then we can
               -- skip right away, since we'll already have tested that one.
 
@@ -511,12 +513,14 @@ synthSpec sigs =
                 holds <- testAllPar eq_inst complSig terms_to_test
 
 
+                let sf' = so_far + 1
                 case holds of
-                    Nothing -> go' GoState {so_far = (so_far + length terms_to_test),
-                                            current_terms = terms,
-                                            unique_terms =
-                                              Map.adjust (wip_rewritten:) current_ty unique_terms,
-                                            rwrts = rwrts',..}
+                    Nothing -> do refreshCount lvl sf'
+                                  go' GoState { so_far = sf',
+                                                current_terms = terms,
+                                                unique_terms =
+                                                  Map.adjust (wip_rewritten:) current_ty unique_terms,
+                                                rwrts = rwrts',..}
                     Just t -> do
                         let (gsig, glaws) =
                               -- We have to be a bit careful about the order
@@ -542,15 +546,18 @@ synthSpec sigs =
                                             then updateRewrites (Left npmg) r1
                                             else return r1
                                       updateRewrites (Right mgrhs) r2
-                        putStrLn ((show n <> ". ") <> (ppNpTerm $ most_general))
-                        continue rwrts'' ns terms
-              where continue rwrts law_nums terms =
-                      go' GoState {seen = 
-                                  (hash $ canonicalize complSig wip_rewritten) `IntSet.insert` seen,
-                                  so_far=(so_far+1),
+                        let law_str = (show n <> ". ") <> (ppNpTerm $ most_general)
+                            lsl = max 0 (80 - length law_str)
+                        putStrLn ("\r" ++ law_str ++ replicate lsl ' ')
+                        refreshCount lvl sf'
+                        continue sf' rwrts'' ns terms
+              where continue sf' rwrts law_nums terms =
+                      go' GoState {seen = (hash $ canonicalize complSig wip_rewritten) `IntSet.insert` seen,
+                                  so_far=sf',
                                   current_terms = terms, ..}
-                    skip = go' GoState{so_far = so_far+1,
-                                       current_terms = terms, ..}
+                    skip = do refreshCount lvl (so_far + 1)
+                              go' GoState{so_far = so_far+1,
+                                          current_terms = terms, ..}
                     -- wrt variable renaming
                     np_term = npTerm' full_term
                     (eq_txt, eq_inst) = eq_insts Map.! current_ty
@@ -610,6 +617,11 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
         ppTerm' _ (Term (Symbol t) _) = T.unpack t
         parIfReq s@(c:_) | c /= '(', c /= '[', not (isAlphaNum c) = "("<>s<>")"
         parIfReq s = s
+
+refreshCount :: Int -> Int -> IO ()
+refreshCount size i = putStr ("\r\ESC[K"
+                    ++ "exploring terms of size " ++ show size
+                    ++ ", " ++ show i ++ " examined so far.\r") >> flushStdHandles
 
 ppTy :: TypeSkeleton -> T.Text
 ppTy (TCons t []) = t
