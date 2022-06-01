@@ -44,6 +44,9 @@ import qualified Data.Monoid as M
 import qualified Test.QuickCheck as QC
 import qualified Data.Set as Set
 import Data.Set (Set)
+import Data.Hashable (hash, Hashable)
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IntSet
 
 newtype A = A M.Any deriving (Typeable, Eq, Show, Ord)
 newtype B = B M.Any deriving (Typeable, Eq, Show, Ord)
@@ -67,17 +70,17 @@ data GeneratedInstance = Gend {
     g_li_i :: GeneratedInstance
     }
 
-sigGivens :: Sig -> (Sig, Map TypeSkeleton (Text, Dynamic), Map TypeSkeleton Text)
+sigGivens :: Sig -> (Sig, Map TypeSkeleton (Text, Dynamic) , Map TypeSkeleton (Text,Func))
 sigGivens sigs = (--eqDef <>
                    -- Map.fromList (mapMaybe toEqInst allCons) <>
-                   Map.fromList (mapMaybe toEmptyLi allCons) <>
+                   -- Map.fromList (mapMaybe toEmptyLi allCons) <>
                    Map.fromList (mapMaybe consName allCons)
                  , eq_insts
                  , arbs)
   where trs = map sfTypeRep $ Map.elems sigs
         eq_insts = Map.fromList $ mapMaybe (\c -> ((c,) . fmap sfFunc) <$> toEqInst c)
                                 $ filter isCon allCons
-        arbs = Map.fromList $ mapMaybe (\ty -> ((ty,) . fst) <$> consName ty) allCons
+        arbs = Map.fromList $ mapMaybe (\ty -> (ty,)  <$> consName ty) allCons
         isCon (TCons _ _) = True
         isCon _ = False
         -- we specialcase lists
@@ -85,7 +88,15 @@ sigGivens sigs = (--eqDef <>
         cons t@(TCons _ r) = Set.unions $ (Set.singleton t):(map cons r)
         cons t@(TFun arg ret) = Set.singleton t <> cons arg <> cons ret
         cons (TVar _) = Set.empty
-        allCons = Set.toList $ Set.unions $ map cons trs
+        addLi :: TypeSkeleton -> [TypeSkeleton]
+        addLi t = t:(addLi' 0 t) -- bump this to get more [A], [[A]],
+                                 -- [[[A]]], etc.
+          where addLi' :: Int -> TypeSkeleton -> [TypeSkeleton]
+                addLi' 0 _ = []
+                addLi' n t = t':(addLi' (n-1) t')
+                 where t' = TCons "[]" [t]
+                
+        allCons = nubHash $ concatMap addLi $ Set.toList $ Set.unions $ map cons trs
         toEqInst e | Just rep <- genRep e,
                      Just eqf <- g_eq rep = g rep eqf
            where g rep eqf = Just ("<@Eq_"<>(T.pack $ show $ g_tr rep)<>"@>",
@@ -98,22 +109,6 @@ sigGivens sigs = (--eqDef <>
                                extraFunc (g_empty_li rep))
                     
 
-        -- Needs template haskell for user-given instances.
-        -- in core f: (Eq a => Eq [a])
-        -- (==) (f (Eq a)) :: Eq [a]
-        -- (==) @[A]
-        -- TODO:
-        -- eqLaws = Map.singleton "<@Eq_[a]@>"
-        --             $ GivenFun (GivenLaw "Eq_[a]")
-        --             $ TFun (TCons "Eq" [TVar "a"])
-        --             $ TCons "Eq" [TCons "[]" [TVar "a"]]
-        eqDef = Map.singleton "(==)" $ 
-                    GivenFun (GivenDef "(==)")
-                             $ TFun (TCons "Eq" [TVar "a"])
-                             $ TFun (TVar "a")
-                             $ TFun (TVar "a")
-                             $ TCons "Bool" []
-        
         consName :: TypeSkeleton -> Maybe (Text, Func)
         consName t = g <$> genRep t
            where g rep = toTup (GivenFun (GivenVar (g_tr rep) 0 (g_arb rep)) t) 
@@ -279,16 +274,19 @@ instance Ord GivenInfo where
   compare (GivenVar {}) _ = GT
 
 
-
-gvToName :: GivenInfo -> Text
-gvToName (GivenVar tr i _) = var<>is<>"_<"<>trn <>">"
-  where
-        trn = T.pack (show tr)
+gvToNameNoType :: GivenInfo -> Text
+gvToNameNoType (GivenVar tr i _) = var<>is
+  where trn = T.pack (show tr)
         is = T.pack (show i)
         var = case tyConName (typeRepTyCon tr) of
                 "[]" -> "xs"
                 "->" -> "f"
                 _ -> "x"
+gvToNameNoType _ = error "not a given var!"
+
+gvToName :: GivenInfo -> Text
+gvToName gv@(GivenVar tr _ _) = (gvToNameNoType gv)<>"_<"<>trn <>">"
+    where trn = T.pack (show tr)
 gvToName _ = error "not a given var!"
 
 
@@ -413,6 +411,19 @@ generalizeType (TCons s []) | s `elem` ["A","B","C","D","Acc"]
 generalizeType (TCons s r) = TCons s $ map generalizeType r
 generalizeType (TFun arg ret) = TFun (generalizeType arg) (generalizeType ret)
 generalizeType tsk = tsk
+
+dropNpTypes :: Term -> Term
+dropNpTypes (Term "app" [_,f,v]) = Term "app" [dropNpTypes f,dropNpTypes v]
+dropNpTypes (Term s [_]) = Term s []
+dropNpTypes (Term s args) = Term s $ map dropNpTypes args
+
+unifyAllVars :: Sig -> Term -> Term
+unifyAllVars sig (Term (Symbol s) _) |
+    Just (GivenFun {given_info=gv@GivenVar {}}) <- sig Map.!? s = 
+        -- Term "_" []
+        Term (Symbol $ gvToNameNoType gv) []
+unifyAllVars sig (Term s args) = Term s $ map (unifyAllVars sig) args
+
  
 -- When we generalize types, the types of the functions don't match, but
 -- since we can coerce between A and B etc. we can actually apply the
@@ -458,6 +469,12 @@ termToGen _ sig vv (Term (Symbol sym) _) = do
 
 dynProp :: Gen Dynamic -> Property
 dynProp gen = QC.forAll gen (flip fromDyn (property False))
+
+nubHash :: Hashable a => [a] -> [a]
+nubHash li = nubHash' IntSet.empty li
+  where nubHash' _ [] = []
+        nubHash' seen (a:as) | (hash a) `IntSet.member` seen = nubHash' seen as
+        nubHash' seen (a:as) = a:(nubHash' (IntSet.insert (hash a) seen) as)
 
 -- TODO: can we kill a branch once a rewriteable term is detected?
 --

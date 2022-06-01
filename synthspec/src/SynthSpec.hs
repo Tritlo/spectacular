@@ -79,8 +79,14 @@ updateEcta _ stecta = return $ stecta
 hasSmallerRewrite :: Rewrite -> Term -> Bool
 hasSmallerRewrite rw@(Rewrite _ rw_mp) t@(Term _ args) =
  case rw_mp IM.!? (hash t) of
-   Just r -> termSize t < termSize r
+   Just r -> termSize t <= termSize r
    _ -> any (hasSmallerRewrite rw) args
+
+hasRewrite :: Rewrite -> Term -> Bool
+hasRewrite rw@(Rewrite _ rw_mp) t@(Term _ args) =
+ case rw_mp IM.!? (hash t) of
+   Just r -> True
+   _ -> any (hasRewrite rw) args
 
 generalizedTerm :: IntMap T.Text -> Term -> [Term]
 generalizedTerm arbs t@(Term (Symbol tsy) [ty]) =
@@ -95,6 +101,13 @@ generalizedTerm arbs t@(Term "app" [ty,f,v]) =
     in case arbs IM.!? (hash ty) of
         Just el -> (Term (Symbol el) [ty]):combs
         _ -> combs
+generalizedTerm arbs t@(Term (Symbol tsy) []) =
+    [Term (Symbol el) [] | el <- IM.elems arbs]
+generalizedTerm arbs t@(Term "app" [f,v]) =
+    let gf = (f:generalizedTerm arbs f)
+        gv = (v:generalizedTerm arbs v)
+        combs = [Term "app" [f',v'] | f' <- gf, v' <- gv]
+    in [Term (Symbol el) [] | el <- IM.elems arbs] ++ combs
 generalizedTerm _ t = [t] -- shouldn't happend
   
 -- If there is a law that involves arbitrary xs and ys, it must in particular
@@ -133,16 +146,15 @@ countVars sig (Term (Symbol tsy) [_]) =
 countVars sig (Term symbol args) =
     Map.unionsWith (+) $ map (countVars sig) args
 
-nubHash :: Hashable a => [a] -> [a]
-nubHash li = nubHash' IntSet.empty li
-  where nubHash' _ [] = []
-        nubHash' seen (a:as) | (hash a) `IntSet.member` seen = nubHash' seen as
-        nubHash' seen (a:as) = a:(nubHash' (IntSet.insert (hash a) seen) as)
-       
     
 hasSubsumption :: Rewrite -> IntMap T.Text -> Term -> Maybe Term
 hasSubsumption rw@(Rewrite _ rw_mp) arbs t@(Term s args) =
     L.find (flip IM.member rw_mp . hash) (generalizedTerm arbs t) 
+
+hasSubsCanon :: Sig -> Rewrite -> IntMap T.Text -> Term -> Maybe Term
+hasSubsCanon sig rw@(Rewrite _ rw_mp) arbs t@(Term s args) =
+    L.find (flip IM.member rw_mp . hash
+            . canonicalize sig) (generalizedTerm arbs $ canonicalize sig t) 
 
 typeSkeletonToTerm :: TypeSkeleton -> Term
 typeSkeletonToTerm (TCons s args) 
@@ -190,7 +202,8 @@ updRw a b (Rewrite hole_rules mp) =
                                          then (a,b)
                                          else (b,a)
                                     else (b,a)
-    in Rewrite hole_rules (IM.insert (hash big) sml mp)
+    in traceShow (ppNpTerm big ++ " ==> " ++ ppNpTerm sml) $
+       Rewrite hole_rules (IM.insert (hash big) sml mp)
 
 applyRewrites :: Rewrite -> Node -> IO Node
 applyRewrites r n = return n
@@ -200,6 +213,9 @@ initRewrites = return $ Rewrite [] IM.empty
 
 termSize :: Term -> Int
 termSize (Term s []) = 1
+termSize (Term s [_]) = 1
+termSize (Term s [_, f,v]) = 1 + termSize f + termSize v
+termSize (Term s [f,v]) = 1 + termSize f + termSize v
 termSize (Term s args) = 1 + sum (map termSize args)
 
 -- if we find a rewrite from anything to a given var, it holds
@@ -258,8 +274,11 @@ data GoState = GoState {seen :: IntSet, --hashed integers
 synthSpec :: [Sig] -> IO ()
 synthSpec sigs =
     do let (givenSig, eq_insts, arbs) = sigGivens sig
-           int_arbs = IM.fromList $ map (\(tsk,gens) -> (hash (typeSkeletonToTerm tsk), gens)) 
+           int_arbs = IM.fromList $ map (\(tsk,(gn,_)) -> (hash (typeSkeletonToTerm tsk), gn)) 
                                   $ Map.assocs arbs
+           simpl_int_arbs = IM.fromList $ map (\(tsk,(_,(GivenFun {given_info=gv@GivenVar{}})))
+                                            -> (hash (typeSkeletonToTerm tsk), gvToNameNoType gv)) 
+                                        $ Map.assocs arbs
            sig_ty_cons = Map.keys eq_insts
            complSig = sig <> givenSig
            sig = mconcat sigs
@@ -284,19 +303,13 @@ synthSpec sigs =
 
        -- print $ (Dyn.dynTypeRep . sfFunc) <$> sig
        let givens = Map.assocs $ sfTypeRep <$> givenSig
-           skels = sfTypeRep <$> sig
-           reqSkels = sfTypeRep <$> Map.filter sfRequired sig
+           skels = (generalizeType . sfTypeRep) <$> sig
            scope_comps = (Map.assocs skels) ++ givens
            addSyms st tt = map (Bi.bimap (Symbol . st) (tt . typeToFta))
-           ngnodes = addSyms id id
+           -- ngnodes = addSyms id id
            gnodes = addSyms id (generalize scope_comps)
-           -- argnodes are the ones we require at least 1 of.
-           argNodes = ngnodes $ (Map.assocs reqSkels) ++ givens
            anyArg = Node $ map (\(s,t) -> Edge s [t]) $
-                        (gnodes givens) ++ ngnodes (Map.assocs skels)
-           groups = Map.fromList $ map (\(t,_) -> (t,[t])) $ scope_comps ++ givens
-           boolTy = typeRepToTypeSkeleton $ Dyn.dynTypeRep $ Dyn.toDyn True
-           resNode = typeToFta boolTy
+                        (gnodes givens) ++ gnodes (Map.assocs skels)
        -- putStrLn "givens"
        -- putStrLn "------------------------------------------------------------"
        -- mapM_ print givens
@@ -406,17 +419,23 @@ synthSpec sigs =
               -- skip right away, since we'll already have tested that one.
 
              | hasSmallerRewrite rwrts np_term = skip
-             | (hash wip_rewritten) `IntSet.member` seen = skip
+             | hasRewrite rwrts $ canonicalize complSig np_term = skip
+             | (hash $ canonicalize complSig wip_rewritten) `IntSet.member` seen = skip
              | not (current_ty `Map.member` unique_terms) =
                 go' (GoState{current_terms = terms,
                             unique_terms = Map.insert current_ty [wip_rewritten] unique_terms,
                             ..})
              | Just gt <- hasSubsumption rwrts' int_arbs wip_rewritten = skip
+             | (npc,r3) <- badRewrite rwrts' (canonicalize complSig np_term),
+               Just gt <- hasSubsCanon sig rwrts' simpl_int_arbs npc = skip
              | otherwise = do
                 let other_terms = unique_terms Map.! current_ty
                     terms_to_test = map termToTest other_terms
                 -- putStrLn $ ("Testing: " <> ppNpTerm wip_rewritten
                 --            <> " :: " <> (T.unpack $ ppTy current_ty))
+                -- putStrLn $ show np_term
+                -- putStrLn $ show (canonicalize complSig np_term)
+
                 let -- No need to run multiple tests if there are no variables!
                     runTest eq_inst sig t =
                         -- We test 100x per variable, but for constants we
@@ -499,12 +518,22 @@ synthSpec sigs =
 
                         -- Note: this should be t, because the variables
                         -- don't exist outside here!
-                        rwrts'' <- (updateRewrites (Left $ npTerm' t) rwrts')
-                                >>= updateRewrites (Left $ npTerm' most_general)
+                        rwrts'' <- do let npt = npTerm' t
+                                      r1 <- updateRewrites (Left $ npt) rwrts'
+                                      let npmg = npTerm' most_general
+                                      r2 <- if npt /= npmg
+                                            then updateRewrites (Left npmg) r1
+                                            else return r1
+                                      let npc = npTerm' $ canonicalize gsig npt
+                                      if npc /= npt && npc /= npmg
+                                      then updateRewrites (Left npc) r2
+                                      else return r2
+
                         putStrLn ((show n <> ". ") <> (ppNpTerm $ most_general))
                         continue rwrts'' ns terms
               where continue rwrts law_nums terms =
-                      go' GoState {seen = (hash wip_rewritten) `IntSet.insert` seen,
+                      go' GoState {seen = 
+                                  (hash $ canonicalize complSig wip_rewritten) `IntSet.insert` seen,
                                   so_far=(so_far+1),
                                   current_terms = terms, ..}
                     skip = go' GoState{so_far = so_far+1,
@@ -516,6 +545,7 @@ synthSpec sigs =
                                                , o, wip_rewritten]
                     -- we're probably missing out on some rewrites due to
                     -- us operating on the flipped term
+
                     (wip_rewritten, rwrts') = (fromMaybe rwrts) <$>
                                                 badRewrite rwrts np_term
        args <- Env.getArgs
@@ -523,6 +553,9 @@ synthSpec sigs =
                     arg:_ | Just n <- TR.readMaybe arg -> n
                     _ -> 6 -- Set to 6 to save time on the flight xD:w
        go size
+
+canonicalize :: Sig -> Term -> Term
+canonicalize sig = unifyAllVars sig . dropNpTypes
 
 npTerm :: Term -> Term
 npTerm (Term "filter" [_,
@@ -558,6 +591,8 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
   where
         ppTerm' True (Term "app" [_,f,v]) = "(" <> ppTerm' True f <> " " <> ppTerm' True v <> ")"
         ppTerm' _ (Term "app" [_,f,v]) = ppTerm' True f <> " " <> ppTerm' True v
+        ppTerm' True (Term "app" [f,v]) = "(" <> ppTerm' True f <> " " <> ppTerm' True v <> ")"
+        ppTerm' _ (Term "app" [f,v]) = ppTerm' True f <> " " <> ppTerm' True v
         ppTerm' True (Term (Symbol t) _) = parIfReq (T.unpack t)
         ppTerm' _ (Term (Symbol t) _) = T.unpack t
         parIfReq s@(c:_) | c /= '(', c /= '[', not (isAlphaNum c) = "("<>s<>")"
