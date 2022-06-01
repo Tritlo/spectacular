@@ -11,6 +11,7 @@ module SynthSpec (
 -- slower, but uses less memory.
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import Data.Tuple (swap)
 -- import qualified Data.Map as Map
 -- import Data.Map (Map)
 import qualified Data.Dynamic as Dyn
@@ -36,7 +37,7 @@ import qualified Data.Set as Set
 import qualified System.Environment as Env
 import qualified Text.Read as TR
 import Debug.Trace
-import Data.Maybe (fromMaybe, catMaybes, mapMaybe)
+import Data.Maybe (fromMaybe, catMaybes, mapMaybe, isJust)
 import Data.Char (isAlphaNum)
 import Data.Either (rights)
 
@@ -316,6 +317,22 @@ synthSpec sigs =
        mapM_ print (Map.assocs arbs)
        putStrLn ""
 
+       let isId :: Term -> Bool
+           isId (Term "(==)" [_, a,b]) = (hash a) == (hash b)
+           isId _ = False
+
+           mtk _ _ _ 0 = []
+           mtk _ anyArg False 1 = [anyArg]
+           mtk comps anyArg True 1 = [anyArg, SS.applyOperator comps]
+           mtk comps anyArg _ k = map constructApp [1.. (k-1)]
+            where
+                constructApp :: Int -> Node
+                constructApp i =
+                    mapp (union $ mtk comps anyArg False i)
+                         (union $ mtk comps anyArg True (k-i))
+
+
+
        -- print $ (Dyn.dynTypeRep . sfFunc) <$> sig
        let givens = Map.assocs $ sfTypeRep <$> givenSig
            skels = (generalizeType . sfTypeRep) <$> sig
@@ -325,6 +342,18 @@ synthSpec sigs =
            gnodes = addSyms id (generalize scope_comps)
            anyArg = Node $ map (\(s,t) -> Edge s [t]) $
                         (gnodes givens) ++ gnodes (Map.assocs skels)
+           scope_terms = getAllTerms $ refold $ reduceFully 
+                                     $ union $ mtk scope_comps anyArg False 1
+           scope_term_ty sig (Term (Symbol s) _) = sfTypeRep (sig Map.! s)
+            
+           scope_terms_w_ty :: [(TypeSkeleton, Term)]
+           scope_terms_w_ty = map (\t -> (scope_term_ty complSig t, npTerm' t)) scope_terms
+           scope_uniques = Map.unionsWith (++) $ map (\(tsk,t) -> Map.singleton tsk [t])
+                                                 scope_terms_w_ty
+
+                            
+                            
+
        -- putStrLn "givens"
        -- putStrLn "------------------------------------------------------------"
        -- mapM_ print givens
@@ -346,21 +375,6 @@ synthSpec sigs =
        let qc_args = QC.stdArgs { QC.chatty = False,
                                   QC.maxShrinks = 0,
                                   QC.maxSuccess = 1000}
-       let isId :: Term -> Bool
-           isId (Term "(==)" [_, a,b]) = (hash a) == (hash b)
-           isId _ = False
-
-           mtk _ _ _ 0 = []
-           mtk _ anyArg False 1 = [anyArg]
-           mtk comps anyArg True 1 = [anyArg, SS.applyOperator comps]
-           mtk comps anyArg _ k = map constructApp [1.. (k-1)]
-            where
-                constructApp :: Int -> Node
-                constructApp i =
-                    mapp (union $ mtk comps anyArg False i)
-                         (union $ mtk comps anyArg True (k-i))
-
-
 
            -- TODO: add e-graphs and rewrites.
            go :: Int -> IO ()
@@ -414,10 +428,14 @@ synthSpec sigs =
                         current_terms = [],..} = do
             --putStrLn ("Checking " ++ (T.unpack $ ppTy tc) ++ " with size " ++ show lvl_num ++ "...")
 
-            refreshCount "generating ECTA for" "" lvl_num so_far
+            refreshCount "generating ECTA" (" for type " ++ (T.unpack $ ppTy tc))
+                         "" lvl_num so_far
             let toText e = T.pack $ ppNpTerm $ npTerm e
-                unique_args = concatMap (\(t,es) -> map ((,typeToFta t) . Symbol . toText ) es)
-                                $ Map.assocs unique_terms
+                -- unique_args = (concatMap (\(t,es) -> map ((,typeToFta t) . Symbol . toText ) es)
+                --                 $ (Map.assocs (Map.unionWith 
+                --                                 (\a b -> nubHash (a ++ b))
+                --                                 unique_terms scope_uniques)))
+                -- any_unique_arg = Node $ map (\(s,t) -> Edge s [t]) unique_args
                 nextNode = union $ mtk scope_comps any_arg True lvl_num
                 -- TODO: where to best do the rewrites?
             -- filtered_and_reduced <- fmap refold <$> collectStats $
@@ -425,8 +443,14 @@ synthSpec sigs =
             filtered_and_reduced <- fmap refold <$> collectStats $
                 (return $ reduceFully $ filterType nextNode (typeToFta tc))
 
+
             rewritten <- applyRewrites rwrts filtered_and_reduced
-            go' GoState{current_terms = getAllTerms rewritten,
+            let terms = getAllTerms rewritten
+            -- mapM_ (putStrLn . ppNpTerm . npTerm') terms
+            -- putStrLn "\rGenerating terms...                   "
+            -- print (show $ length terms)
+            -- putStrLn "-------"
+            go' GoState{current_terms = terms,
                         type_cons = tcs,
                         current_ty = tc,..}
            go' GoState{law_nums = law_nums@(n:ns),
@@ -434,31 +458,22 @@ synthSpec sigs =
                        lvl_nums = lvl_nums@(lvl:_),..}
               -- if there is a possible re-write that's *smaller*, then we can
               -- skip right away, since we'll already have tested that one.
-
-             | hasSmallerRewrite rwrts np_term = skip
-             | hasRewrite rwrts $ canonicalize complSig np_term = skip
-             | (hash $ canonicalize complSig wip_rewritten) `IntSet.member` seen = skip
              | not (current_ty `Map.member` unique_terms) =
                 go' (GoState{current_terms = terms,
                             unique_terms = Map.insert current_ty [wip_rewritten] unique_terms,
                             ..})
-             | Just gt <- hasSubsumption rwrts' int_arbs wip_rewritten = skip
-             | (npc,r3) <- badRewrite rwrts' (canonicalize complSig np_term),
-               Just gt <- hasSubsCanon sig rwrts' simpl_int_arbs npc = skip
+            -- | hasSmallerRewrite rwrts np_term = skip
+             | hasRewrite rwrts canon_np = skip
+             | (hash $ canonicalize complSig wip_rewritten) `IntSet.member` seen = skip
              | hasAnySub rwrts' np_term = skip
              | otherwise = do
                 let other_terms = unique_terms Map.! current_ty
                     terms_to_test = map termToTest other_terms
-                -- putStrLn $ ("Testing: " <> ppNpTerm wip_rewritten
-                --            <> " :: " <> (T.unpack $ ppTy current_ty))
-                -- putStrLn $ show np_term
-                -- putStrLn $ show (canonicalize complSig np_term)
-
-                let -- No need to run multiple tests if there are no variables!
+                     -- No need to run multiple tests if there are no variables!
                     runTest eq_inst sig t =
                         -- We test 100x per variable, but for constants we
                         -- need only test once!
-                        let nvs = max (length (termVars sig t) * 100) 1
+                        let nvs = 100 
                             qc_args' = qc_args {QC.maxSuccess = nvs}
                         in collectStats $ QC.isSuccess <$>
                                            (QC.quickCheckWithResult qc_args' $
@@ -511,18 +526,28 @@ synthSpec sigs =
                                                  return (Just a)
                                          else CCA.wait asref
 
-                refreshCount "testing" ("(" ++ (show $ length terms_to_test) ++ " to test...)") lvl so_far
+                refreshCount ("exploring " ++ (T.unpack $ ppTy current_ty))
+                             (" (" ++ (show $ length terms) ++ " left at this size)")
+                             ("(" ++ (show $ length terms_to_test) ++ " to test...)") lvl so_far
                 holds <- testAllPar eq_inst complSig terms_to_test
 
 
                 let sf' = so_far + 1
                 case holds of
-                    Nothing -> do refreshCount "exploring" "" lvl sf'
+                    Nothing -> do refreshCount "exploring"
+                                               (" (" ++ (show $ length terms) ++ " left at this size)")
+                                               
+                                               "" lvl sf'
                                   go' GoState { so_far = sf',
                                                 current_terms = terms,
                                                 unique_terms =
                                                   Map.adjust (wip_rewritten:) current_ty unique_terms,
                                                 rwrts = rwrts',..}
+
+                    -- These tests are expensive, so we only do them for laws that hold.
+                    Just t | isJust (hasSubsumption rwrts' int_arbs wip_rewritten) -> skip
+                    Just t | (npc,r3) <- badRewrite rwrts' canon_np,
+                              isJust (hasSubsCanon sig rwrts' simpl_int_arbs npc) -> skip
                     Just t -> do
                         let (gsig, glaws) =
                               -- We have to be a bit careful about the order
@@ -535,6 +560,7 @@ synthSpec sigs =
                         
                         -- If we don't find a more general law, we use the one
                         -- we found.
+                        refreshCount "generalizing" "" ("(" ++ show (length glaws) ++ " possibilities...)") lvl sf'
                         most_general <- fromMaybe t <$> testAllInOrderAsync eq_inst gsig glaws
                         let (Term "(==)" [_,_,mgrhs]) = canonicalize gsig most_general
 
@@ -551,16 +577,22 @@ synthSpec sigs =
                         let law_str = (show n <> ". ") <> (ppNpTerm $ most_general)
                             lsl = max 0 (80 - length law_str)
                         putStrLn ("\r" ++ law_str ++ replicate lsl ' ')
-                        refreshCount "exploring" "" lvl sf'
+                        refreshCount  ("exploring " ++ (T.unpack $ ppTy current_ty)) 
+                                      (" (" ++ (show $ length terms) ++ " left at this size)")
+                                       "" lvl sf'
                         continue sf' rwrts'' ns terms
               where continue sf' rwrts law_nums terms =
                       go' GoState {seen = (hash $ canonicalize complSig wip_rewritten) `IntSet.insert` seen,
                                   so_far=sf',
                                   current_terms = terms, ..}
-                    skip = do refreshCount "exploring" "" lvl (so_far + 1)
+                    skip = do refreshCount ("exploring " ++ (T.unpack $ ppTy current_ty))
+                                           (" (" ++ (show $ length terms) ++ " left at this size)")
+                                           ("(skipped `" ++ (ppNpTerm np_term) ++ "`)")
+                                          lvl (so_far + 1)
                               go' GoState{so_far = so_far+1,
                                           current_terms = terms, ..}
                     -- wrt variable renaming
+                    canon_np = canonicalize complSig np_term
                     np_term = npTerm' full_term
                     (eq_txt, eq_inst) = eq_insts Map.! current_ty
                     termToTest o = Term "(==)" [ Term (Symbol eq_txt) []
@@ -620,13 +652,16 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
         parIfReq s@(c:_) | c /= '(', c /= '[', not (isAlphaNum c) = "("<>s<>")"
         parIfReq s = s
 
-refreshCount :: String -> String -> Int -> Int -> IO ()
-refreshCount pre post size i = putStr (o ++ fill ++ "\r") >> flushStdHandles
-  where o = "\r\ESC[K"
+refreshCount :: String -> String -> String -> Int -> Int -> IO ()
+-- refreshCount _ _ _ _ _ = return ()
+refreshCount pre mid post size i = putStr (o ++ fill ++ "\r") >> flushStdHandles
+  where o' = "\r\ESC[K"
             ++ pre ++ " terms of size " ++ show size
+             ++ mid
             ++ ", " ++ show i ++ " examined so far. "
-            ++ post
-        fill = replicate (max 0 (length o - 80)) ' '
+        o = if length (o' ++ post) <= 120 then o' ++ post 
+            else (take 117 (o' ++ post)) ++ "..."
+        fill = replicate (max 0 (length o - 120)) ' '
 
 ppTy :: TypeSkeleton -> T.Text
 ppTy (TCons t []) = t
