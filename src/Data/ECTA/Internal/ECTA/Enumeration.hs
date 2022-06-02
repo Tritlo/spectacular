@@ -392,26 +392,46 @@ enumerateOutFirstExpandableUVar = do
     ExpansionStuck   -> mzero
 
 enumerateFully :: EnumerateM ()
-enumerateFully  = enumerateFully' False False (\ _ _ -> return False)
+enumerateFully  = enumerateFully' False Nothing (\ _ _ -> return (False, Nothing))
 
-enumerateFully' :: Bool -> Bool -> (UVar -> Either TermFragment Node -> EnumerateM Bool) -> EnumerateM ()
-enumerateFully' pick_last eager_suspend shouldPrune = do
-  muv <- if pick_last && eager_suspend 
-         then lastExpandableUVar
+enumerateFully' :: Bool
+                -> Maybe UVar
+                -> (UVar -> Either TermFragment Node -> EnumerateM (Bool, Maybe UVar))
+                -> EnumerateM ()
+enumerateFully' eager_suspend mb_hint shouldPrune = do
+  muv <- if eager_suspend
+         then case mb_hint of
+                Just uv ->
+                    do cs <- findExpandableUVars
+                       return $ case cs of
+                                 Nothing -> ExpansionDone
+                                 -- The hint is a candidate!
+                                 Just mp | (uvarToInt uv) `IntMap.member` mp ->
+                                      ExpansionNext uv
+                                 -- rest is like firstExpandableUVar
+                                 Just mp ->
+                                    case IntMap.lookupMin mp of
+                                     Nothing -> ExpansionStuck
+                                     Just (i, _) -> ExpansionNext (intToUVar i)
+                _ -> lastExpandableUVar
          else firstExpandableUVar
   case muv of
    ExpansionStuck   -> mzero
    ExpansionDone    -> return ()
-   ExpansionNext uv -> let continue = do tf <- enumerateOutUVar' eager_suspend uv
-                                         spr <- shouldPrune uv (Left tf)
-                                         unless spr $ enumerateFully' (not pick_last) eager_suspend shouldPrune
-                       in do UVarUnenumerated (Just n) scs <- getUVarValue uv
-                             should_prune_res <- shouldPrune uv (Right n)
-                             if should_prune_res then return ()
-                             else if scs == Sequence.Empty then case n of
-                                                                 Mu _ -> return ()
-                                                                 _    -> continue
-                                  else continue
+   ExpansionNext uv ->
+    let continue = do tf <- enumerateOutUVar' eager_suspend uv
+                      (spr, mb_hint') <- shouldPrune uv (Left tf)
+                      unless spr $ enumerateFully'
+                                    eager_suspend
+                                    (maybe mb_hint Just mb_hint')
+                                    shouldPrune
+    in do UVarUnenumerated (Just n) scs <- getUVarValue uv
+          (should_prune_res, _) <- shouldPrune uv (Right n)
+          if should_prune_res then return ()
+          else if scs == Sequence.Empty then case n of
+                                              Mu _ -> return ()
+                                              _    -> continue
+                                        else continue
 
 
 ---------------------
@@ -463,10 +483,11 @@ getAllTruncatedTerms n = map (termFragToTruncatedTerm . fst) $
                            enumerateFully
                            getTermFragForUVar (intToUVar 0)
 
-getAllTermsPrune :: (UVar -> Either TermFragment Node -> EnumerateM Bool) -> Node -> [Term]
+getAllTermsPrune :: (UVar -> Either TermFragment Node -> EnumerateM (Bool, Maybe UVar))
+                 -> Node -> [Term]
 getAllTermsPrune shouldPrune n =
     mapMaybe fst $ flip runEnumerateM (initEnumerationState n) $ do
-                            enumerateFully' True True shouldPrune
+                            enumerateFully' True Nothing shouldPrune
                             uv <- getUVarValue (intToUVar 0)
                             -- If we pruned the branch it won't have been
                             -- fully enumerated, so we return nothing.
@@ -478,7 +499,7 @@ getAllTermsPrune shouldPrune n =
                                 _ -> return Nothing
 
 getAllTerms :: Node -> [Term]
-getAllTerms = getAllTermsPrune (\ _ _ -> return False)
+getAllTerms = getAllTermsPrune (\ _ _ -> return (False, Nothing))
 
 
 -- | Inefficient enumeration

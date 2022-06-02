@@ -316,6 +316,44 @@ badRewrite rwr@(Rewrite hole_rules mp) orig_term
                rw' = IM.fromAscList $ map shortCircuit $ IM.assocs rw
 
 --badRewrite rwr term = (term, Nothing)
+--
+anyM :: Monad m => (a -> m Bool) -> [a] -> m Bool
+anyM check [] = return False
+anyM check (a:as) = do r <- check a
+                       if r then return True
+                       else anyM check as
+allM :: Monad m => (a -> m Bool) -> [a] -> m Bool
+allM check [] = return True
+allM check (a:as) = do r <- check a
+                       if not r then return False
+                       else allM check as
+
+-- TODO: we're maybe calling getUVarValue too often here.
+fragRepresents :: TermFragment -> [Term]  -> EnumerateM Bool
+fragRepresents (TermFragmentNode "filter" [_,t]) rwrs = fragRepresents t rwrs
+fragRepresents (TermFragmentNode "app" [_,_,f,v]) rwrs =
+    fragRepresents (TermFragmentNode "app" [f,v]) rwrs
+fragRepresents (TermFragmentNode s [_]) rwrs =
+    fragRepresents (TermFragmentNode s []) rwrs
+
+fragRepresents (TermFragmentNode s ts) rwrs = do
+    subs_match <- anyM (flip fragRepresents rwrs) ts
+    if subs_match then return True
+    else anyM checkSub $ filter ((== s) . fst) (map unTerm rwrs)
+    where unTerm (Term "filter" [_,t]) = unTerm t
+          unTerm (Term "app" [_, _, f,v]) = ("app", [f,v])
+          unTerm (Term s [_]) = (s, [])
+          unTerm t@(Term s a) = error ("unterm panic!! " ++ show t)
+          checkSub (_,subrws) | length subrws == length ts
+            = allM (uncurry fragRepresents) $ zip ts $ map (:[]) subrws
+          checkSub _ = return False
+
+fragRepresents (TermFragmentUVar uv) rwrs =
+    do val <- getUVarValue uv
+       case val of
+           UVarEnumerated t -> fragRepresents t rwrs
+           _ -> return False
+
 
 
 
@@ -499,46 +537,14 @@ synthSpec sigs =
             -- mapM_ (print ) rewrite_terms
             -- putStrLn "--------"
             --
-            let Rewrite rw_seen _ = rwrts
-                shouldPrune uv (Left _) =
-                  do uvv <- getUVarValue (intToUVar 0)
-                     case uvv of
-                        UVarEnumerated t ->
-                            do stf0 <- simplify <$> expandPartialTermFrag t
-                               return $ in_rw stf0
-                        _ -> return False
-                  where in_rw t@(Term _ args) = (hash t) `IntSet.member`
-                                                rw_set || any in_rw args
-                shouldPrune _ (Right n) =
-                    return $ M.getAny (crush (onNormalNodes cf) n)
+
+            let shouldPrune uv (Left _) = (,Nothing) <$> fragRepresents (TermFragmentUVar (intToUVar 0)) rws
+                shouldPrune _ (Right n) = return $ (M.getAny (crush (onNormalNodes cf) n), Nothing)
                 cf n = M.Any (any (nodeRepresents n) templs)
                 (templs, rws) = partition hasTemplate rewrite_terms
-                rw_set = IntSet.fromList $ map (hash . simplify) rws
-                hasTemplate (Term (Symbol s) args)
-                    = T.isPrefixOf "<v" s || any hasTemplate args
-                simplify (Term "filter" [_, t]) = simplify t
-                simplify (Term "app" [_,_,f,v]) = Term "app" [simplify f,
-                                                              simplify v]
-                simplify (Term "app" [_,f,v]) = Term "app" [simplify f,
-                                                            simplify v]
-                simplify (Term s [_]) = Term s []
-                simplify t = t
-                matchesShape (Term (Symbol s1) a1) t2@(Term (Symbol s2) a2)
-                    | s1 == s2, length a1 == length a2,
-                      and (zipWith matchesShape a1 a2) = True
-                    | T.isPrefixOf "<v" s2,
-                       length a1 == length a2 =  True
-                    | otherwise = any (flip matchesShape t2) a1
-
-
+                hasTemplate (Term (Symbol s) args) = T.isPrefixOf "<v" s || any hasTemplate args
                 terms = getAllTermsPrune shouldPrune rewritten
-            -- putStrLn "rw-terms"
-            -- mapM_ print rewrite_terms
-            -- putStrLn "rw-terms"
-            -- putStrLn "--------"
-            -- mapM_ (print . tf) rewrite_terms
-            -- mapM_ (putStrLn . ppNpTerm . npTerm') terms
-            -- putStrLn "-------"
+
             go' GoState{current_terms = terms,
                         type_cons = tcs,
                         current_ty = tc,..}
