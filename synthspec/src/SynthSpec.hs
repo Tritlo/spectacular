@@ -9,8 +9,10 @@ module SynthSpec (
 ) where
 
 -- slower, but uses less memory.
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
+-- import qualified Data.Map.Strict as Map
+-- import Data.Map.Strict (Map)
+import qualified Data.Map.Lazy as Map
+import Data.Map.Lazy (Map)
 import Data.Tuple (swap)
 -- import qualified Data.Map as Map
 -- import Data.Map (Map)
@@ -30,7 +32,8 @@ import Application.TermSearch.TermSearch hiding (allConstructors, generalize)
 import Data.ECTA
 import Data.ECTA.Term
 import Data.ECTA.Internal.ECTA.Operations (nodeRepresents)
-import Data.ECTA.Internal.ECTA.Enumeration (expandPartialTermFrag, getUVarValue, UVarValue(..))
+import Data.ECTA.Internal.ECTA.Enumeration
+    (expandPartialTermFrag, getUVarValue, UVarValue(..), TermFragment(..))
 import Data.Persistent.UnionFind ( uvarToInt, intToUVar )
 import Data.List hiding (union)
 import qualified Test.QuickCheck as QC
@@ -168,8 +171,7 @@ hasAnySub :: Rewrite -> Term -> Bool
 hasAnySub rw@(Rewrite seen _) t | any (termHoleEq $ dropNpTypes t) seen = True
   where -- Equality on terms based on holes
         termHoleEq :: Term -> Term -> Bool
-        termHoleEq (Term "<_>" _) _ = True
-        termHoleEq  _ (Term "<_>" _) = True
+        termHoleEq  _ (Term (Symbol s) _) | T.isPrefixOf "<_" s = True
         termHoleEq t1@(Term s1 a1) t2@(Term s2 a2) = 
             hash t1 == hash t2 || ( s1 == s2 && length a1 == length a2
                                     && all (uncurry termHoleEq) (zip a1 a2))
@@ -279,7 +281,7 @@ badRewrite rwr@(Rewrite hole_rules mp) orig_term
 
 data GoState = GoState {seen :: IntSet, --hashed integers
                         rwrts :: Rewrite,
-                        unique_terms :: Map TypeSkeleton [Term],
+                        unique_terms :: !(Map TypeSkeleton [Term]),
                         stecta :: StEcta,
                         type_cons :: [TypeSkeleton],
                         current_ty :: TypeSkeleton,
@@ -287,7 +289,7 @@ data GoState = GoState {seen :: IntSet, --hashed integers
                         lvl_nums :: [Int],
                         law_nums :: [Int],
                         current_terms :: [Term],
-                        rewrite_terms :: [Term]
+                        rewrite_terms :: ![Term]
                         } deriving (Show)
 
 
@@ -456,30 +458,44 @@ synthSpec sigs =
             -- mapM_ (print ) rewrite_terms
             -- putStrLn "--------"
             --
-            let shouldPrune uv (Left _) =
+            let Rewrite rw_seen _ = rwrts
+                shouldPrune uv (Left _) =
                   do uvv <- getUVarValue (intToUVar 0) 
                      case uvv of
-                        UVarEnumerated t -> do tf0 <- expandPartialTermFrag t
-                                               return $ in_rw (simplify tf0)
+                        UVarEnumerated t ->
+                            do stf0 <- simplify <$> expandPartialTermFrag t
+                               return $  in_rw stf0 || any (matchesShape stf0) simple_rw
                         _ -> return False
-                  where in_rw t@(Term _ args) = (hash t) `IntSet.member` rw_set
-                                             || any in_rw args
+                  where in_rw t@(Term _ args) = (hash t) `IntSet.member` rw_set || any in_rw args
                 shouldPrune _ (Right _) = return $ False
-                rw_set = IntSet.fromList $ map (hash . simplify) rewrite_terms
+                simple_rw = map simplify rewrite_terms
+                rw_set = IntSet.fromList $ map hash simple_rw
                 simplify (Term "filter" [_, t]) = simplify t
                 simplify (Term "app" [_,_,f,v]) = Term "app" [simplify f,
                                                               simplify v]
+                simplify (Term "app" [_,f,v]) = Term "app" [simplify f,
+                                                            simplify v]
                 simplify (Term s [_]) = Term s []
                 simplify t = t
+                matchesShape (Term (Symbol s1) a1) t2@(Term (Symbol s2) a2) 
+                    | s1 == s2, length a1 == length a2,
+                      and (zipWith matchesShape a1 a2) = True
+                    | T.isPrefixOf "<v" s2,
+                       length a1 == length a2 =  True
+                    | otherwise = any (flip matchesShape t2) a1
+
+                      
                 -- M.getAny (crush c_f n)
                 -- c_f c_n = M.Any (any (nodeRepresents c_n) rewrite_terms)
                     -- trace "Node encountered!" False
                 terms = getAllTermsPrune shouldPrune rewritten
             -- putStrLn "rw-terms"
+            -- mapM_ print rewrite_terms
+            -- putStrLn "rw-terms"
             -- putStrLn "--------"
             -- mapM_ (print . tf) rewrite_terms
             -- putStrLn "\rGenerating terms...                   "
-            mapM_ (putStrLn . ppNpTerm . npTerm') terms
+            -- mapM_ (putStrLn . ppNpTerm . npTerm') terms
             -- putStrLn "-------"
             go' GoState{current_terms = terms,
                         type_cons = tcs,
@@ -487,17 +503,10 @@ synthSpec sigs =
            go' GoState{law_nums = law_nums@(n:ns),
                        current_terms = (full_term:terms),
                        lvl_nums = lvl_nums@(lvl:_),..}
-              -- if there is a possible re-write that's *smaller*, then we can
-              -- skip right away, since we'll already have tested that one.
-             -- | (hash $ np_term) `IntSet.member` seen = skip
              | not (current_ty `Map.member` unique_terms) =
                 go' (GoState{current_terms = terms,
                             unique_terms = Map.insert current_ty [wip_rewritten] unique_terms,
                             ..})
-             | hasSmallerRewrite rwrts np_term = skip
-             | hasRewrite rwrts canon_np = skip
-             | (hash $ canonicalize complSig wip_rewritten) `IntSet.member` seen = skip
-             | hasAnySub rwrts' np_term = skip
              | otherwise = do
                 let other_terms = unique_terms Map.! current_ty
                     terms_to_test = map termToTest other_terms
@@ -566,7 +575,7 @@ synthSpec sigs =
 
                 let sf' = so_far + 1
                 case holds of
-                    Nothing -> do refreshCount "exploring" ""
+                    Nothing -> do refreshCount ("exploring " ++ (T.unpack $ ppTy current_ty)) ""
                                                -- (" (" ++ (show $ length terms) ++ " left at this size)")
                                                
                                                "" lvl sf'
@@ -577,9 +586,8 @@ synthSpec sigs =
                                                 rwrts = rwrts',..}
 
                     -- These tests are expensive, so we only do them for laws that hold.
-                    Just t | isJust (hasSubsumption rwrts' int_arbs wip_rewritten) -> skip
-                    Just t | (npc,r3) <- badRewrite rwrts' canon_np,
-                              isJust (hasSubsCanon sig rwrts' simpl_int_arbs npc) -> skip
+                    Just _ | hasSmallerRewrite rwrts' np_term -> skip
+                    Just _ | hasAnySub rwrts' np_term -> skip
                     Just t -> do
                         let (gsig, glaws) =
                               -- We have to be a bit careful about the order
@@ -615,12 +623,12 @@ synthSpec sigs =
                         -- continue sf' rwrts'' ns terms
                         let Term "filter" [_, rewrite_term] = full_term
                         go' GoState {
-                                seen = seen <> IntSet.fromList (map hash [canonicalize complSig wip_rewritten, np_term]),
+                                -- seen = seen <> IntSet.fromList (map hash [canonicalize complSig wip_rewritten, np_term]),
                                 so_far=sf',
                                 rwrts = rwrts'',
                                 law_nums = ns,
                                 current_terms = terms,
-                                rewrite_terms = rewrite_term:rewrite_terms,
+                                rewrite_terms = (toTemplate gsig rewrite_term):rewrite_terms,
                                 ..}
               where skip = do refreshCount ("exploring " ++ (T.unpack $ ppTy current_ty)) ""
                                            -- (" (" ++ (show $ length terms) ++ " left at this size)")
@@ -636,9 +644,10 @@ synthSpec sigs =
                                                , o, wip_rewritten]
                     -- we're probably missing out on some rewrites due to
                     -- us operating on the flipped term
-
-                    (wip_rewritten, rwrts') = (fromMaybe rwrts) <$>
-                                                badRewrite rwrts np_term
+                    
+                    (wip_rewritten, rwrts') = (np_term, rwrts)
+                    -- (wip_rewritten, rwrts') = (fromMaybe rwrts) <$>
+                    --                             badRewrite rwrts np_term
        args <- Env.getArgs
        let size = case args of
                     arg:_ | Just n <- TR.readMaybe arg -> n
@@ -690,7 +699,7 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
         parIfReq s = s
 
 refreshCount :: String -> String -> String -> Int -> Int -> IO ()
-refreshCount _ _ _ _ _ = return ()
+-- refreshCount _ _ _ _ _ = return ()
 refreshCount pre mid post size i = putStr (o ++ fill ++ "\r") >> flushStdHandles
   where o' = "\r\ESC[K"
             ++ pre ++ " terms of size " ++ show size

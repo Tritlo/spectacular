@@ -392,17 +392,19 @@ enumerateOutFirstExpandableUVar = do
     ExpansionStuck   -> mzero
 
 enumerateFully :: EnumerateM ()
-enumerateFully  = enumerateFully' False (\ _ _ -> return False)
+enumerateFully  = enumerateFully' False False (\ _ _ -> return False)
 
-enumerateFully' :: Bool -> (UVar -> Either TermFragment Node -> EnumerateM Bool) -> EnumerateM ()
-enumerateFully' eager_suspend shouldPrune = do
-  muv <- if eager_suspend then lastExpandableUVar else firstExpandableUVar
+enumerateFully' :: Bool -> Bool -> (UVar -> Either TermFragment Node -> EnumerateM Bool) -> EnumerateM ()
+enumerateFully' pick_last eager_suspend shouldPrune = do
+  muv <- if pick_last && eager_suspend 
+         then lastExpandableUVar
+         else firstExpandableUVar
   case muv of
    ExpansionStuck   -> mzero
    ExpansionDone    -> return ()
    ExpansionNext uv -> let continue = do tf <- enumerateOutUVar' eager_suspend uv
                                          spr <- shouldPrune uv (Left tf)
-                                         unless spr $ enumerateFully' eager_suspend shouldPrune
+                                         unless spr $ enumerateFully' (not pick_last) eager_suspend shouldPrune
                        in do UVarUnenumerated (Just n) scs <- getUVarValue uv
                              should_prune_res <- shouldPrune uv (Right n)
                              if should_prune_res then return ()
@@ -424,7 +426,7 @@ expandPartialTermFrag (TermFragmentUVar uv)  =
        case val of
         UVarEnumerated t                 -> expandPartialTermFrag t
         UVarUnenumerated (Just (Mu _)) _ -> return $ Term "Mu" []
-        _ -> return $ Term (Symbol $ "v" <> pretty (uvarToInt uv)) []
+        _ -> return $ Term (Symbol $ "<v" <> pretty (uvarToInt uv) <> ">") []
 
 
 expandTermFrag :: TermFragment -> EnumerateM Term
@@ -464,7 +466,7 @@ getAllTruncatedTerms n = map (termFragToTruncatedTerm . fst) $
 getAllTermsPrune :: (UVar -> Either TermFragment Node -> EnumerateM Bool) -> Node -> [Term]
 getAllTermsPrune shouldPrune n =
     mapMaybe fst $ flip runEnumerateM (initEnumerationState n) $ do
-                            enumerateFully' True shouldPrune
+                            enumerateFully' True True shouldPrune
                             uv <- getUVarValue (intToUVar 0)
                             -- If we pruned the branch it won't have been
                             -- fully enumerated, so we return nothing.
