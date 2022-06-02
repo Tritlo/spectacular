@@ -291,6 +291,11 @@ enumerateNode' eager_suspend scs n         =
 enumerateEdge :: Seq SuspendedConstraint -> Edge -> EnumerateM TermFragment
 enumerateEdge = enumerateEdge' False
 
+suspendNode :: Seq SuspendedConstraint -> Node -> EnumerateM TermFragment
+suspendNode scs' n = do uv <- addUVarValue (Just n)
+                        mergeNodeIntoUVarVal uv n scs'
+                        return $ TermFragmentUVar uv
+
 enumerateEdge' :: Bool -> Seq SuspendedConstraint -> Edge -> EnumerateM TermFragment
 enumerateEdge' eager_suspend scs e = do
   let highestConstraintIndex = getMax $ foldMap (\sc -> Max $ fromMaybe (-1) $ getMaxNonemptyIndex $ scGetPathTrie sc) scs
@@ -301,9 +306,6 @@ enumerateEdge' eager_suspend scs e = do
   if eager_suspend && length (edgeChildren e) > 1
   then TermFragmentNode (edgeSymbol e) <$> imapM (\i n -> suspendNode (descendScs i scs') n) (edgeChildren e)
   else TermFragmentNode (edgeSymbol e) <$> imapM (\i n -> enumerateNode' eager_suspend (descendScs i scs') n) (edgeChildren e)
-  where suspendNode scs' n = do uv <- addUVarValue (Just n)
-                                mergeNodeIntoUVarVal uv n scs'
-                                return $ TermFragmentUVar uv
                                
 
 
@@ -314,8 +316,9 @@ enumerateEdge' eager_suspend scs e = do
 data ExpandableUVarResult = ExpansionStuck | ExpansionDone | ExpansionNext !UVar deriving (Show)
 
 -- Can speed this up with bitvectors
-firstExpandableUVar :: EnumerateM ExpandableUVarResult
-firstExpandableUVar = do
+
+findExpandableUVars :: EnumerateM (Maybe (IntMap.IntMap Any))
+findExpandableUVars = do
     values <- use uvarValues
     -- check representative uvars because only representatives are updated
     candidateMaps <- mapM (\i -> do rep <- getUVarRepresentative (intToUVar i)
@@ -329,7 +332,7 @@ firstExpandableUVar = do
     let candidates = IntMap.unions candidateMaps
 
     if IntMap.null candidates then
-      return ExpansionDone
+      return Nothing
      else do
       let ruledOut = foldMap
                       (\case (UVarUnenumerated _ scs) -> foldMap
@@ -340,10 +343,27 @@ firstExpandableUVar = do
                       values
 
       let unconstrainedCandidateMap = IntMap.filter (not . getAny) (ruledOut <> candidates)
-      case IntMap.lookupMin unconstrainedCandidateMap of
-        Nothing     -> return ExpansionStuck
-        Just (i, _) -> return $ ExpansionNext $ intToUVar i
+      return (Just unconstrainedCandidateMap)
 
+firstExpandableUVar :: EnumerateM ExpandableUVarResult
+firstExpandableUVar = do
+      mb_unconstrainedCandidateMap <- findExpandableUVars
+      case mb_unconstrainedCandidateMap of
+        Nothing -> return ExpansionDone
+        Just unconstrainedCandidateMap ->
+            case IntMap.lookupMin unconstrainedCandidateMap of
+                Nothing     -> return ExpansionStuck
+                Just (i, _) -> return $ ExpansionNext $ intToUVar i
+
+lastExpandableUVar :: EnumerateM ExpandableUVarResult
+lastExpandableUVar = do
+      mb_unconstrainedCandidateMap <- findExpandableUVars
+      case mb_unconstrainedCandidateMap of
+        Nothing -> return ExpansionDone
+        Just unconstrainedCandidateMap ->
+            case IntMap.lookupMax unconstrainedCandidateMap of
+                Nothing     -> return ExpansionStuck
+                Just (i, _) -> return $ ExpansionNext $ intToUVar i
 
 
 enumerateOutUVar' :: Bool -> UVar -> EnumerateM TermFragment
@@ -372,19 +392,19 @@ enumerateOutFirstExpandableUVar = do
     ExpansionStuck   -> mzero
 
 enumerateFully :: EnumerateM ()
-enumerateFully  = enumerateFully' False (return . const False)
+enumerateFully  = enumerateFully' False (\ _ _ -> return False)
 
-enumerateFully' :: Bool -> (Either TermFragment Node -> EnumerateM Bool) -> EnumerateM ()
+enumerateFully' :: Bool -> (UVar -> Either TermFragment Node -> EnumerateM Bool) -> EnumerateM ()
 enumerateFully' eager_suspend shouldPrune = do
-  muv <- firstExpandableUVar
+  muv <- if eager_suspend then lastExpandableUVar else firstExpandableUVar
   case muv of
    ExpansionStuck   -> mzero
    ExpansionDone    -> return ()
    ExpansionNext uv -> let continue = do tf <- enumerateOutUVar' eager_suspend uv
-                                         spr <- shouldPrune (Left tf)
+                                         spr <- shouldPrune uv (Left tf)
                                          unless spr $ enumerateFully' eager_suspend shouldPrune
-                       in do UVarUnenumerated (Just n) scs <- getUVarValue $ traceShow (uvarToInt uv) uv
-                             should_prune_res <- shouldPrune (Right n)
+                       in do UVarUnenumerated (Just n) scs <- getUVarValue uv
+                             should_prune_res <- shouldPrune uv (Right n)
                              if should_prune_res then return ()
                              else if scs == Sequence.Empty then case n of
                                                                  Mu _ -> return ()
@@ -441,7 +461,7 @@ getAllTruncatedTerms n = map (termFragToTruncatedTerm . fst) $
                            enumerateFully
                            getTermFragForUVar (intToUVar 0)
 
-getAllTermsPrune :: (Either TermFragment Node -> EnumerateM Bool) -> Node -> [Term]
+getAllTermsPrune :: (UVar -> Either TermFragment Node -> EnumerateM Bool) -> Node -> [Term]
 getAllTermsPrune shouldPrune n =
     mapMaybe fst $ flip runEnumerateM (initEnumerationState n) $ do
                             enumerateFully' True shouldPrune
@@ -456,7 +476,7 @@ getAllTermsPrune shouldPrune n =
                                 _ -> return Nothing
 
 getAllTerms :: Node -> [Term]
-getAllTerms = getAllTermsPrune (return . const True)
+getAllTerms = getAllTermsPrune (\ _ _ -> return False)
 
 
 -- | Inefficient enumeration

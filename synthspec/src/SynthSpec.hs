@@ -30,7 +30,8 @@ import Application.TermSearch.TermSearch hiding (allConstructors, generalize)
 import Data.ECTA
 import Data.ECTA.Term
 import Data.ECTA.Internal.ECTA.Operations (nodeRepresents)
-import Data.ECTA.Internal.ECTA.Enumeration (expandPartialTermFrag)
+import Data.ECTA.Internal.ECTA.Enumeration (expandPartialTermFrag, getUVarValue, UVarValue(..))
+import Data.Persistent.UnionFind ( uvarToInt, intToUVar )
 import Data.List hiding (union)
 import qualified Test.QuickCheck as QC
 import Control.Monad (zipWithM_, filterM, when)
@@ -455,12 +456,15 @@ synthSpec sigs =
             -- mapM_ (print ) rewrite_terms
             -- putStrLn "--------"
             --
-            let shouldPrune (Left t) =
-                  do etf <- expandPartialTermFrag t
-                     return $ in_rw (traceShowId $ simplify etf)
+            let shouldPrune uv (Left _) =
+                  do uvv <- getUVarValue (intToUVar 0) 
+                     case uvv of
+                        UVarEnumerated t -> do tf0 <- expandPartialTermFrag t
+                                               return $ in_rw (simplify tf0)
+                        _ -> return False
                   where in_rw t@(Term _ args) = (hash t) `IntSet.member` rw_set
                                              || any in_rw args
-                shouldPrune (Right _) = return $ False
+                shouldPrune _ (Right _) = return $ False
                 rw_set = IntSet.fromList $ map (hash . simplify) rewrite_terms
                 simplify (Term "filter" [_, t]) = simplify t
                 simplify (Term "app" [_,_,f,v]) = Term "app" [simplify f,
