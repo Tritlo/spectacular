@@ -455,10 +455,10 @@ synthSpec sigs =
             -- mapM_ (print ) rewrite_terms
             -- putStrLn "--------"
             --
-            let oracle (Left t) = in_rw (tf $ termFragToTruncatedTerm t)
+            let oracle (Left t) = return $ in_rw (traceShowId $ tf $ termFragToTruncatedTerm t)
                   where in_rw t@(Term _ args) = (hash t) `IntSet.member` rw_set
                                              || any in_rw args
-                oracle (Right _) = False
+                oracle (Right _) = return $ False
                 rw_set = IntSet.fromList $ map (hash . tf) rewrite_terms
                 tf (Term "filter" [_, t]) = tf t
                 tf (Term "app" [_,_,f,v]) = Term "app" [tf f, tf v]

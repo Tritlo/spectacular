@@ -43,7 +43,7 @@ module Data.ECTA.Internal.ECTA.Enumeration (
   , naiveDenotationBounded
   ) where
 
-import Control.Monad ( forM_, guard )
+import Control.Monad ( forM_, guard, unless )
 import Control.Monad.State.Strict ( StateT(..) )
 import qualified Data.IntMap as IntMap
 import Data.Maybe ( fromMaybe, isJust, mapMaybe )
@@ -365,28 +365,25 @@ enumerateOutFirstExpandableUVar = do
     ExpansionStuck   -> mzero
 
 enumerateFully :: EnumerateM ()
-enumerateFully  = enumerateFully' False (const False)
+enumerateFully  = enumerateFully' False (return . const False)
 
-enumerateFully' :: Bool -> (Either TermFragment Node -> Bool) -> EnumerateM ()
+enumerateFully' :: Bool -> (Either TermFragment Node -> EnumerateM Bool) -> EnumerateM ()
 enumerateFully' eager_suspend shouldPrune = do
   muv <- firstExpandableUVar
-  tv <- getUVarValue (intToUVar 0)
-  should_prune_res <- case tv of
-    UVarEnumerated t -> return (shouldPrune (Left t))
-    UVarUnenumerated (Just n) _ -> return (shouldPrune (Right n))
-    _ -> return False
-  if should_prune_res then mzero
-  else case muv of
-        ExpansionStuck   -> mzero
-        ExpansionDone    -> return ()
-        ExpansionNext uv -> do UVarUnenumerated (Just n) scs <- getUVarValue uv
-                               if scs == Sequence.Empty then
-                                   case n of
-                                       Mu _ -> return ()
-                                       _    -> enumerateOutUVar' eager_suspend uv
-                                            >> enumerateFully' eager_suspend shouldPrune
-                                   else enumerateOutUVar' eager_suspend uv
-                                     >> enumerateFully' eager_suspend shouldPrune
+  case muv of
+   ExpansionStuck   -> mzero
+   ExpansionDone    -> return ()
+   ExpansionNext uv -> let continue = do tf <- enumerateOutUVar' eager_suspend uv
+                                         spr <- shouldPrune (Left tf)
+                                         unless spr $ enumerateFully' eager_suspend shouldPrune
+                       in do UVarUnenumerated (Just n) scs <- getUVarValue uv
+                             should_prune_res <- shouldPrune (Right n)
+                             if should_prune_res then return ()
+                             else if scs == Sequence.Empty then case n of
+                                                                 Mu _ -> return ()
+                                                                 _    -> continue
+                                  else continue
+
 
 ---------------------
 -------- Expanding an enumerated term fragment into a term
@@ -438,7 +435,7 @@ getAllTruncatedTerms n = map (termFragToTruncatedTerm . fst) $
                            enumerateFully
                            getTermFragForUVar (intToUVar 0)
 
-getAllTermsPrune :: (Either TermFragment Node -> Bool) -> Node -> [Term]
+getAllTermsPrune :: (Either TermFragment Node -> EnumerateM Bool) -> Node -> [Term]
 getAllTermsPrune shouldPrune n =
     mapMaybe fst $ flip runEnumerateM (initEnumerationState n) $ do
                             enumerateFully' True shouldPrune
@@ -453,7 +450,7 @@ getAllTermsPrune shouldPrune n =
                                 _ -> return Nothing
 
 getAllTerms :: Node -> [Term]
-getAllTerms = getAllTermsPrune (const True)
+getAllTerms = getAllTermsPrune (return . const True)
 
 
 -- | Inefficient enumeration
