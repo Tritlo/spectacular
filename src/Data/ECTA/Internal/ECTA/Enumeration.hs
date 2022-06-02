@@ -67,6 +67,7 @@ import Data.ECTA.Term
 import           Data.Persistent.UnionFind ( UnionFind, UVar, uvarToInt, intToUVar, UVarGen )
 import qualified Data.Persistent.UnionFind as UnionFind
 import Data.Text.Extended.Pretty
+import Debug.Trace
 
 -------------------------------------------------------------------------------
 
@@ -303,7 +304,7 @@ enumerateEdge' eager_suspend scs e = do
 -------- Enumeration-loop control
 ---------------------
 
-data ExpandableUVarResult = ExpansionStuck | ExpansionDone | ExpansionNext !UVar
+data ExpandableUVarResult = ExpansionStuck | ExpansionDone | ExpansionNext !UVar deriving (Show)
 
 -- Can speed this up with bitvectors
 firstExpandableUVar :: EnumerateM ExpandableUVarResult
@@ -366,25 +367,42 @@ enumerateOutFirstExpandableUVar = do
 enumerateFully :: EnumerateM ()
 enumerateFully  = enumerateFully' False (const False)
 
-enumerateFully' :: Bool -> (Node -> Bool) -> EnumerateM ()
+enumerateFully' :: Bool -> (Either Term Node -> Bool) -> EnumerateM ()
 enumerateFully' eager_suspend shouldPrune = do
   muv <- firstExpandableUVar
-  case muv of
-    ExpansionStuck   -> mzero
-    ExpansionDone    -> return ()
-    ExpansionNext uv -> do UVarUnenumerated (Just n) scs <- getUVarValue uv
-                           if shouldPrune n then return () 
-                           else if scs == Sequence.Empty then
-                                    case n of
-                                        Mu _ -> return ()
-                                        _    -> enumerateOutUVar' eager_suspend uv 
-                                             >> enumerateFully' eager_suspend shouldPrune
-                                    else enumerateOutUVar' eager_suspend uv
-                                      >> enumerateFully' eager_suspend shouldPrune
+  tv <- getUVarValue (intToUVar 0)
+  should_prune_res <- case tv of
+    UVarEnumerated t -> (shouldPrune . Left <$> expandPartialTermFrag t)
+    UVarUnenumerated (Just n) _ -> return (shouldPrune (Right n))
+    _ -> return False
+  if should_prune_res then return ()
+  else case muv of
+        ExpansionStuck   -> mzero
+        ExpansionDone    -> return ()
+        ExpansionNext uv -> do UVarUnenumerated (Just n) scs <- getUVarValue uv
+                               if scs == Sequence.Empty then
+                                   case n of
+                                       Mu _ -> return ()
+                                       _    -> enumerateOutUVar' eager_suspend uv
+                                            >> enumerateFully' eager_suspend shouldPrune
+                                   else enumerateOutUVar' eager_suspend uv
+                                     >> enumerateFully' eager_suspend shouldPrune
 
 ---------------------
 -------- Expanding an enumerated term fragment into a term
 ---------------------
+
+
+expandPartialTermFrag :: TermFragment -> EnumerateM Term
+expandPartialTermFrag (TermFragmentNode s ts) = Term s <$> mapM expandPartialTermFrag ts
+expandPartialTermFrag (TermFragmentUVar uv)  =
+    do val <- getUVarValue uv
+       case val of
+        UVarEnumerated t                 -> expandPartialTermFrag t
+        UVarUnenumerated (Just (Mu _)) _ -> return $ Term "Mu" []
+        UVarUnenumerated (Just _) _ -> return $ Term "_" []
+        _ -> error "expandTermFrag: Non-recursive, unenumerated node encountered"
+
 
 expandTermFrag :: TermFragment -> EnumerateM Term
 expandTermFrag (TermFragmentNode s ts) = Term s <$> mapM expandTermFrag ts
@@ -412,7 +430,7 @@ getAllTruncatedTerms n = map (termFragToTruncatedTerm . fst) $
                            enumerateFully
                            getTermFragForUVar (intToUVar 0)
 
-getAllTermsPrune :: (Node -> Bool) -> Node -> [Term]
+getAllTermsPrune :: (Either Term Node -> Bool) -> Node -> [Term]
 getAllTermsPrune shouldPrune n =
     mapMaybe fst $ flip runEnumerateM (initEnumerationState n) $ do
                             enumerateFully' True shouldPrune

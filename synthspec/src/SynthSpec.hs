@@ -29,6 +29,7 @@ import Application.TermSearch.Type
 import Application.TermSearch.TermSearch hiding (allConstructors, generalize)
 import Data.ECTA
 import Data.ECTA.Term
+import Data.ECTA.Internal.ECTA.Operations (nodeRepresents)
 import Data.List hiding (union)
 import qualified Test.QuickCheck as QC
 import Control.Monad (zipWithM_, filterM, when)
@@ -40,6 +41,7 @@ import Debug.Trace
 import Data.Maybe (fromMaybe, catMaybes, mapMaybe, isJust)
 import Data.Char (isAlphaNum)
 import Data.Either (rights)
+import qualified Data.Monoid as M
 
 import qualified Control.Concurrent.Async as CCA
 import qualified Control.Concurrent as CC
@@ -282,7 +284,8 @@ data GoState = GoState {seen :: IntSet, --hashed integers
                         so_far :: Int,
                         lvl_nums :: [Int],
                         law_nums :: [Int],
-                        current_terms :: [Term]
+                        current_terms :: [Term],
+                        rewrite_terms :: [Term]
                         } deriving (Show)
 
 
@@ -380,6 +383,7 @@ synthSpec sigs =
            go :: Int -> IO ()
            go n = do rwrts <- initRewrites
                      go' GoState {seen = IntSet.empty,
+                                  rewrite_terms = [],
                                   rwrts = rwrts,
                                   unique_terms = Map.empty,
                                   stecta = StEcta{ scope_comps = scope_comps,
@@ -445,11 +449,18 @@ synthSpec sigs =
 
 
             rewritten <- applyRewrites rwrts filtered_and_reduced
-            let oracle _ = even lvl_num
+            -- putStrLn "rw-terms"
+            -- putStrLn "--------"
+            -- mapM_ print rewrite_terms
+            -- putStrLn "--------"
+            let oracle (Left t) = t `elem` rewrite_terms
+                oracle (Right _) = False
+                -- M.getAny (crush c_f n)
+                -- c_f c_n = M.Any (any (nodeRepresents c_n) rewrite_terms)
+                    -- trace "Node encountered!" False
                 terms = getAllTermsPrune oracle rewritten
-            mapM_ (putStrLn . ppNpTerm . npTerm') terms
             -- putStrLn "\rGenerating terms...                   "
-            -- print (show $ length terms)
+            -- mapM_ (putStrLn . ppNpTerm . npTerm') terms
             -- putStrLn "-------"
             go' GoState{current_terms = terms,
                         type_cons = tcs,
@@ -459,12 +470,12 @@ synthSpec sigs =
                        lvl_nums = lvl_nums@(lvl:_),..}
               -- if there is a possible re-write that's *smaller*, then we can
               -- skip right away, since we'll already have tested that one.
-             | (hash $ np_term) `IntSet.member` seen = skip
+             -- | (hash $ np_term) `IntSet.member` seen = skip
              | not (current_ty `Map.member` unique_terms) =
                 go' (GoState{current_terms = terms,
                             unique_terms = Map.insert current_ty [wip_rewritten] unique_terms,
                             ..})
-            -- | hasSmallerRewrite rwrts np_term = skip
+             | hasSmallerRewrite rwrts np_term = skip
              | hasRewrite rwrts canon_np = skip
              | (hash $ canonicalize complSig wip_rewritten) `IntSet.member` seen = skip
              | hasAnySub rwrts' np_term = skip
@@ -582,12 +593,17 @@ synthSpec sigs =
                         refreshCount  ("exploring " ++ (T.unpack $ ppTy current_ty))  ""
                                       -- (" (" ++ (show $ length terms) ++ " left at this size)")
                                        "" lvl sf'
-                        continue sf' rwrts'' ns terms
-              where continue sf' rwrts law_nums terms =
-                      go' GoState {seen = seen <> IntSet.fromList (map hash [canonicalize complSig wip_rewritten, np_term]),
-                                  so_far=sf',
-                                  current_terms = terms, ..}
-                    skip = do refreshCount ("exploring " ++ (T.unpack $ ppTy current_ty)) ""
+                        -- continue sf' rwrts'' ns terms
+                        let Term "filter" [_, rewrite_term] = full_term
+                        go' GoState {
+                                seen = seen <> IntSet.fromList (map hash [canonicalize complSig wip_rewritten, np_term]),
+                                so_far=sf',
+                                rwrts = rwrts'',
+                                law_nums = ns,
+                                current_terms = terms,
+                                rewrite_terms = rewrite_term:rewrite_terms,
+                                ..}
+              where skip = do refreshCount ("exploring " ++ (T.unpack $ ppTy current_ty)) ""
                                            -- (" (" ++ (show $ length terms) ++ " left at this size)")
                                            ("(skipped `" ++ (ppNpTerm np_term) ++ "`)")
                                           lvl (so_far + 1)
