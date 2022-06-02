@@ -464,12 +464,17 @@ synthSpec sigs =
                      case uvv of
                         UVarEnumerated t ->
                             do stf0 <- simplify <$> expandPartialTermFrag t
-                               return $  in_rw stf0 || any (matchesShape stf0) simple_rw
+                               return $ in_rw stf0 
                         _ -> return False
-                  where in_rw t@(Term _ args) = (hash t) `IntSet.member` rw_set || any in_rw args
-                shouldPrune _ (Right _) = return $ False
-                simple_rw = map simplify rewrite_terms
-                rw_set = IntSet.fromList $ map hash simple_rw
+                  where in_rw t@(Term _ args) = (hash t) `IntSet.member`
+                                                rw_set || any in_rw args
+                shouldPrune _ (Right n) =
+                    return $ M.getAny (crush (onNormalNodes cf) n)
+                cf n = M.Any (any (nodeRepresents n) templs)
+                (templs, rws) = partition hasTemplate rewrite_terms
+                rw_set = IntSet.fromList $ map (hash . simplify) rws
+                hasTemplate (Term (Symbol s) args)
+                    = T.isPrefixOf "<v" s || any hasTemplate args
                 simplify (Term "filter" [_, t]) = simplify t
                 simplify (Term "app" [_,_,f,v]) = Term "app" [simplify f,
                                                               simplify v]
@@ -507,6 +512,9 @@ synthSpec sigs =
                 go' (GoState{current_terms = terms,
                             unique_terms = Map.insert current_ty [wip_rewritten] unique_terms,
                             ..})
+             | (hash np_term) `IntSet.member` seen = skip seen
+             | hasSmallerRewrite rwrts' np_term = skip (IntSet.insert (hash np_term) seen)
+             | hasAnySub rwrts' np_term = skip (IntSet.insert (hash np_term) seen)
              | otherwise = do
                 let other_terms = unique_terms Map.! current_ty
                     terms_to_test = map termToTest other_terms
@@ -586,8 +594,6 @@ synthSpec sigs =
                                                 rwrts = rwrts',..}
 
                     -- These tests are expensive, so we only do them for laws that hold.
-                    Just _ | hasSmallerRewrite rwrts' np_term -> skip
-                    Just _ | hasAnySub rwrts' np_term -> skip
                     Just t -> do
                         let (gsig, glaws) =
                               -- We have to be a bit careful about the order
@@ -623,19 +629,15 @@ synthSpec sigs =
                         -- continue sf' rwrts'' ns terms
                         let Term "filter" [_, rewrite_term] = full_term
                         go' GoState {
-                                -- seen = seen <> IntSet.fromList (map hash [canonicalize complSig wip_rewritten, np_term]),
+                                seen = seen <> IntSet.singleton (hash np_term),
                                 so_far=sf',
                                 rwrts = rwrts'',
                                 law_nums = ns,
                                 current_terms = terms,
                                 rewrite_terms = (toTemplate gsig rewrite_term):rewrite_terms,
                                 ..}
-              where skip = do refreshCount ("exploring " ++ (T.unpack $ ppTy current_ty)) ""
-                                           -- (" (" ++ (show $ length terms) ++ " left at this size)")
-                                           ("(skipped `" ++ (ppNpTerm np_term) ++ "`)")
-                                          lvl (so_far + 1)
-                              go' GoState{so_far = so_far+1,
-                                          current_terms = terms, ..}
+              where skip seen = do go' GoState{so_far = so_far+1, 
+                                                current_terms = terms, ..}
                     -- wrt variable renaming
                     canon_np = canonicalize complSig np_term
                     np_term = npTerm' full_term
