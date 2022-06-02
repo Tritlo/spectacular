@@ -125,13 +125,23 @@ generalizeLaw :: Sig -> Term -> (Sig, [Term])
 generalizeLaw sig t@(Term "(==)" [ty,lhs,rhs]) =
     let (lhsig, lhss) = generalizedLaw' sig lhs
         (rhsig, rhss) = generalizedLaw' lhsig rhs
-        numVars = Map.elems . countVars rhsig -- we can't simplify more,
+        varIds = Map.elems . termVarIds rhsig -- we can't simplify more,
                                                -- since they need to be of
                                                -- different types.
-    in (rhsig,  map (\((_,t):_) -> t) $ groupBy ((==) `on` fst) $
-                sortOn fst $ map (\t -> (numVars t, t)) $
+    in (rhsig,  -- We want the most general one first with the
+                -- lowest variables. We just keep the first one
+                -- so it's OK if we generate too many.
+                map snd $ concat $ reverse $
+                -- TODO: we can probably do better by splitting the
+                -- varIds here into the lhs and rhs, but we leave it like
+                -- this for now. We count the number of variables of each
+                -- type and sort by that. Note that from the way we generate
+                -- it, the terms are already sorted by varIds.
+                -- We group them by the amount of variables of each type
+                groupBy ((==) `on` fst) $ sortOn fst $
+                map (\t -> (map (Set.size . Set.fromList) $ varIds t, t)) $
                 [Term "(==)" [ty, lhs',rhs'] | lhs' <- lhss, rhs' <- rhss])
-  where var_count = countVars sig t
+  where var_count = Map.unionWith max (countVars sig lhs) (countVars sig rhs)
         generalizedLaw' sig c@(Term (Symbol tsy) [ty]) =
            case sig Map.!? tsy of
               Just v@(GivenFun (GivenVar {}) grep) ->
@@ -146,6 +156,15 @@ generalizeLaw sig t@(Term "(==)" [ty,lhs,rhs]) =
             let (fsig, fs) = generalizedLaw' sig f
                 (vsig, vs) = generalizedLaw' fsig v
             in (vsig, [Term "app" [ty, f',v'] | f' <- fs, v' <- vs])
+
+termVarIds :: Sig -> Term -> Map TypeSkeleton [Int]
+termVarIds sig (Term (Symbol tsy) [_]) =
+    case sig Map.!? tsy of
+        Just v@(GivenFun (GivenVar _ i _) grep) -> Map.singleton grep [i]
+        _ -> Map.empty
+termVarIds sig (Term symbol args) =
+    Map.unionsWith (++) $ map (termVarIds sig) args
+
 
 countVars :: Sig -> Term -> Map TypeSkeleton Int
 countVars sig (Term (Symbol tsy) [_]) =
@@ -595,8 +614,6 @@ synthSpec sigs =
                               -- We have to be a bit careful about the order
                               -- of the generalized laws, because we test
                               -- them in order.
-                              fmap ( reverse
-                                   . filter (\l -> hash l /= hash t)) $
                                     generalizeLaw complSig $ npTerm' t
 
                         -- If we don't find a more general law, we use the one
