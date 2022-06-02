@@ -34,6 +34,7 @@ module Data.ECTA.Internal.ECTA.Enumeration (
   , enumerateOutFirstExpandableUVar
   , enumerateFully
   , expandTermFrag
+  , expandPartialTermFrag
   , expandUVar
 
   , getAllTruncatedTerms
@@ -297,7 +298,13 @@ enumerateEdge' eager_suspend scs e = do
 
   newScs <- Sequence.fromList <$> mapM pecToSuspendedConstraint (unsafeGetEclasses $ edgeEcs e)
   let scs' = scs <> newScs
-  TermFragmentNode (edgeSymbol e) <$> imapM (\i n -> enumerateNode' eager_suspend (descendScs i scs') n) (edgeChildren e)
+  if eager_suspend && length (edgeChildren e) > 1
+  then TermFragmentNode (edgeSymbol e) <$> imapM (\i n -> suspendNode (descendScs i scs') n) (edgeChildren e)
+  else TermFragmentNode (edgeSymbol e) <$> imapM (\i n -> enumerateNode' eager_suspend (descendScs i scs') n) (edgeChildren e)
+  where suspendNode scs' n = do uv <- addUVarValue (Just n)
+                                mergeNodeIntoUVarVal uv n scs'
+                                return $ TermFragmentUVar uv
+                               
 
 
 ---------------------
@@ -376,7 +383,7 @@ enumerateFully' eager_suspend shouldPrune = do
    ExpansionNext uv -> let continue = do tf <- enumerateOutUVar' eager_suspend uv
                                          spr <- shouldPrune (Left tf)
                                          unless spr $ enumerateFully' eager_suspend shouldPrune
-                       in do UVarUnenumerated (Just n) scs <- getUVarValue uv
+                       in do UVarUnenumerated (Just n) scs <- getUVarValue $ traceShow (uvarToInt uv) uv
                              should_prune_res <- shouldPrune (Right n)
                              if should_prune_res then return ()
                              else if scs == Sequence.Empty then case n of
@@ -397,8 +404,7 @@ expandPartialTermFrag (TermFragmentUVar uv)  =
        case val of
         UVarEnumerated t                 -> expandPartialTermFrag t
         UVarUnenumerated (Just (Mu _)) _ -> return $ Term "Mu" []
-        UVarUnenumerated (Just _) _ -> return $ Term "_" []
-        _ -> error "expandTermFrag: Non-recursive, unenumerated node encountered"
+        _ -> return $ Term (Symbol $ "v" <> pretty (uvarToInt uv)) []
 
 
 expandTermFrag :: TermFragment -> EnumerateM Term

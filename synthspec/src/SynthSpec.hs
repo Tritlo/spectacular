@@ -30,7 +30,7 @@ import Application.TermSearch.TermSearch hiding (allConstructors, generalize)
 import Data.ECTA
 import Data.ECTA.Term
 import Data.ECTA.Internal.ECTA.Operations (nodeRepresents)
-import Data.ECTA.Internal.ECTA.Enumeration (termFragToTruncatedTerm)
+import Data.ECTA.Internal.ECTA.Enumeration (expandPartialTermFrag)
 import Data.List hiding (union)
 import qualified Test.QuickCheck as QC
 import Control.Monad (zipWithM_, filterM, when)
@@ -455,24 +455,27 @@ synthSpec sigs =
             -- mapM_ (print ) rewrite_terms
             -- putStrLn "--------"
             --
-            let oracle (Left t) = return $ in_rw (traceShowId $ tf $ termFragToTruncatedTerm t)
+            let shouldPrune (Left t) =
+                  do etf <- expandPartialTermFrag t
+                     return $ in_rw (traceShowId $ simplify etf)
                   where in_rw t@(Term _ args) = (hash t) `IntSet.member` rw_set
                                              || any in_rw args
-                oracle (Right _) = return $ False
-                rw_set = IntSet.fromList $ map (hash . tf) rewrite_terms
-                tf (Term "filter" [_, t]) = tf t
-                tf (Term "app" [_,_,f,v]) = Term "app" [tf f, tf v]
-                tf (Term s [_]) = Term s []
-                tf t = t
+                shouldPrune (Right _) = return $ False
+                rw_set = IntSet.fromList $ map (hash . simplify) rewrite_terms
+                simplify (Term "filter" [_, t]) = simplify t
+                simplify (Term "app" [_,_,f,v]) = Term "app" [simplify f,
+                                                              simplify v]
+                simplify (Term s [_]) = Term s []
+                simplify t = t
                 -- M.getAny (crush c_f n)
                 -- c_f c_n = M.Any (any (nodeRepresents c_n) rewrite_terms)
                     -- trace "Node encountered!" False
-                terms = getAllTermsPrune oracle rewritten
+                terms = getAllTermsPrune shouldPrune rewritten
             -- putStrLn "rw-terms"
             -- putStrLn "--------"
             -- mapM_ (print . tf) rewrite_terms
             -- putStrLn "\rGenerating terms...                   "
-            -- mapM_ (putStrLn . ppNpTerm . npTerm') terms
+            mapM_ (putStrLn . ppNpTerm . npTerm') terms
             -- putStrLn "-------"
             go' GoState{current_terms = terms,
                         type_cons = tcs,
