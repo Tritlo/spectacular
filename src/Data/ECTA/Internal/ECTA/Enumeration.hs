@@ -367,15 +367,15 @@ enumerateOutFirstExpandableUVar = do
 enumerateFully :: EnumerateM ()
 enumerateFully  = enumerateFully' False (const False)
 
-enumerateFully' :: Bool -> (Either Term Node -> Bool) -> EnumerateM ()
+enumerateFully' :: Bool -> (Either TermFragment Node -> Bool) -> EnumerateM ()
 enumerateFully' eager_suspend shouldPrune = do
   muv <- firstExpandableUVar
   tv <- getUVarValue (intToUVar 0)
   should_prune_res <- case tv of
-    UVarEnumerated t -> (shouldPrune . Left <$> expandPartialTermFrag t)
+    UVarEnumerated t -> return (shouldPrune (Left t))
     UVarUnenumerated (Just n) _ -> return (shouldPrune (Right n))
     _ -> return False
-  if should_prune_res then return ()
+  if should_prune_res then mzero
   else case muv of
         ExpansionStuck   -> mzero
         ExpansionDone    -> return ()
@@ -419,6 +419,14 @@ expandUVar :: UVar -> EnumerateM Term
 expandUVar uv = do UVarEnumerated t <- getUVarValue uv
                    expandTermFrag t
 
+fullyEnumerated :: TermFragment -> EnumerateM Bool
+fullyEnumerated (TermFragmentNode _ ts) = and <$> mapM fullyEnumerated ts
+fullyEnumerated (TermFragmentUVar uv) =
+    do val <- getUVarValue uv
+       case val of
+        UVarEnumerated t -> fullyEnumerated t
+        UVarUnenumerated (Just (Mu _)) _ -> return True
+        _ -> return False
 
 ---------------------
 -------- Full enumeration
@@ -430,15 +438,18 @@ getAllTruncatedTerms n = map (termFragToTruncatedTerm . fst) $
                            enumerateFully
                            getTermFragForUVar (intToUVar 0)
 
-getAllTermsPrune :: (Either Term Node -> Bool) -> Node -> [Term]
+getAllTermsPrune :: (Either TermFragment Node -> Bool) -> Node -> [Term]
 getAllTermsPrune shouldPrune n =
     mapMaybe fst $ flip runEnumerateM (initEnumerationState n) $ do
                             enumerateFully' True shouldPrune
                             uv <- getUVarValue (intToUVar 0)
                             -- If we pruned the branch it won't have been
                             -- fully enumerated, so we return nothing.
+
                             case uv of
-                                UVarEnumerated t -> Just <$> expandTermFrag t
+                                UVarEnumerated t -> do fe <- fullyEnumerated t
+                                                       if fe then Just <$> expandTermFrag t
+                                                       else return Nothing
                                 _ -> return Nothing
 
 getAllTerms :: Node -> [Term]
