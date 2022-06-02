@@ -58,6 +58,7 @@ import Data.Hashable (hash, Hashable)
 import qualified Data.List as L
 import Data.Function (on)
 import GHC.TopHandler
+import Data.Containers.ListUtils (nubOrdOn)
 
 -- TODO: make this an e-graph or similar datastructure
 data Rewrite = Rewrite [Term] (IntMap Term) deriving (Show)
@@ -131,17 +132,30 @@ generalizeLaw sig t@(Term "(==)" [ty,lhs,rhs]) =
     in (rhsig,  -- We want the most general one first with the
                 -- lowest variables. We just keep the first one
                 -- so it's OK if we generate too many.
-                map snd $ concat $ reverse $
+                map fst $ concat $ reverse $
                 -- TODO: we can probably do better by splitting the
                 -- varIds here into the lhs and rhs, but we leave it like
                 -- this for now. We count the number of variables of each
                 -- type and sort by that. Note that from the way we generate
                 -- it, the terms are already sorted by varIds.
-                -- We group them by the amount of variables of each type
-                groupBy ((==) `on` fst) $ sortOn fst $
-                map (\t -> (map (Set.size . Set.fromList) $ varIds t, t)) $
+                groupBy ((==) `on` snd) $ sortOn snd $
+                map (fmap (map (IntSet.size . IntSet.fromList))) $
+                nubOrdOn (map rename . snd) $
+                filter (any prune . snd) $
+                map (\t -> (t, varIds t)) $
                 [Term "(==)" [ty, lhs',rhs'] | lhs' <- lhss, rhs' <- rhss])
   where var_count = Map.unionWith max (countVars sig lhs) (countVars sig rhs)
+        -- If the list doesn't start with 0 and has a variable outside
+        -- the list, we can disregard it immediately
+        prune :: [Int] -> Bool
+        prune [] = False
+        prune (0:r) | lr <- length r,
+                      lr == 0,  any (lr <=) r  = False
+        prune _ = True
+        rename :: [Int] -> [Int]
+        rename var_ids = map (uv_mp IM.!) var_ids
+          where u_vars = IntSet.toAscList $ IntSet.fromList var_ids
+                uv_mp = IM.fromList $ zip u_vars [0..]
         generalizedLaw' sig c@(Term (Symbol tsy) [ty]) =
            case sig Map.!? tsy of
               Just v@(GivenFun (GivenVar {}) grep) ->
