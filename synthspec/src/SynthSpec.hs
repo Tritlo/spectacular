@@ -117,7 +117,7 @@ generalizedTerm arbs t@(Term "app" [f,v]) =
         combs = [Term "app" [f',v'] | f' <- gf, v' <- gv]
     in [Term (Symbol el) [] | el <- IM.elems arbs] ++ combs
 generalizedTerm _ t = [t] -- shouldn't happend
-  
+
 -- If there is a law that involves arbitrary xs and ys, it must in particular
 -- also hold whenever xs == ys. So it suffices to explore laws where we have
 -- only a single generator in scope and then generalizing them.
@@ -125,12 +125,13 @@ generalizeLaw :: Sig -> Term -> (Sig, [Term])
 generalizeLaw sig t@(Term "(==)" [ty,lhs,rhs]) =
     let (lhsig, lhss) = generalizedLaw' sig lhs
         (rhsig, rhss) = generalizedLaw' lhsig rhs
-    in (rhsig, -- We don't want laws that are the same up to renaming
-               -- so we remove the ones that are the same after
-               -- simplification of variables
-               nubHash $ map (simplifyVars rhsig) $
-            [Term "(==)" [ty, lhs',rhs'] | lhs' <- lhss, rhs' <- rhss])
-  where var_count = countVars sig t  
+        numVars = Map.elems . countVars rhsig -- we can't simplify more,
+                                               -- since they need to be of
+                                               -- different types.
+    in (rhsig,  map (\((_,t):_) -> t) $ groupBy ((==) `on` fst) $
+                sortOn fst $ map (\t -> (numVars t, t)) $
+                [Term "(==)" [ty, lhs',rhs'] | lhs' <- lhss, rhs' <- rhss])
+  where var_count = countVars sig t
         generalizedLaw' sig c@(Term (Symbol tsy) [ty]) =
            case sig Map.!? tsy of
               Just v@(GivenFun (GivenVar {}) grep) ->
@@ -142,11 +143,11 @@ generalizeLaw sig t@(Term "(==)" [ty,lhs,rhs]) =
                   in (sig <> gsig, [Term (Symbol n) [ty] | n <- gnames] )
               _ -> (sig, [c])
         generalizedLaw' sig (Term "app" [ty,f,v]) =
-            let (fsig, fs) = generalizedLaw' sig f 
+            let (fsig, fs) = generalizedLaw' sig f
                 (vsig, vs) = generalizedLaw' fsig v
             in (vsig, [Term "app" [ty, f',v'] | f' <- fs, v' <- vs])
 
-countVars :: Sig -> Term -> Map TypeSkeleton Int    
+countVars :: Sig -> Term -> Map TypeSkeleton Int
 countVars sig (Term (Symbol tsy) [_]) =
     case sig Map.!? tsy of
         Just v@(GivenFun (GivenVar _ _ _) grep) -> Map.singleton grep 1
@@ -155,15 +156,15 @@ countVars sig (Term symbol args) =
     Map.unionsWith (+) $ map (countVars sig) args
 
 
-    
+
 hasSubsumption :: Rewrite -> IntMap T.Text -> Term -> Maybe Term
 hasSubsumption rw@(Rewrite _ rw_mp) arbs t@(Term s args) =
-    L.find (flip IM.member rw_mp . hash) (generalizedTerm arbs t) 
+    L.find (flip IM.member rw_mp . hash) (generalizedTerm arbs t)
 
 hasSubsCanon :: Sig -> Rewrite -> IntMap T.Text -> Term -> Maybe Term
 hasSubsCanon sig rw@(Rewrite _ rw_mp) arbs t@(Term s args) =
     L.find (flip IM.member rw_mp . hash
-            . canonicalize sig) (generalizedTerm arbs $ canonicalize sig t) 
+            . canonicalize sig) (generalizedTerm arbs $ canonicalize sig t)
 
 hasAnySub :: Rewrite -> Term -> Bool
 -- TODO: this is a LINEAR scan, we should be able to do a lot better.
@@ -171,14 +172,14 @@ hasAnySub rw@(Rewrite seen _) t | any (termHoleEq $ dropNpTypes t) seen = True
   where -- Equality on terms based on holes
         termHoleEq :: Term -> Term -> Bool
         termHoleEq  _ (Term (Symbol s) _) | T.isPrefixOf "<_" s = True
-        termHoleEq t1@(Term s1 a1) t2@(Term s2 a2) = 
+        termHoleEq t1@(Term s1 a1) t2@(Term s2 a2) =
             hash t1 == hash t2 || ( s1 == s2 && length a1 == length a2
                                     && all (uncurry termHoleEq) (zip a1 a2))
 hasAnySub rw@(Rewrite seen _) (Term _ (_:args)) = any (hasAnySub rw) args
 hasAnySub _ _ = False
 
 typeSkeletonToTerm :: TypeSkeleton -> Term
-typeSkeletonToTerm (TCons s args) 
+typeSkeletonToTerm (TCons s args)
     = Term (Symbol s) $ map typeSkeletonToTerm args
 typeSkeletonToTerm (TFun f v) =
     Term "->" [Term "(->)" [], typeSkeletonToTerm f, typeSkeletonToTerm v]
@@ -296,10 +297,10 @@ data GoState = GoState {seen :: !IntSet, --hashed integers
 synthSpec :: [Sig] -> IO ()
 synthSpec sigs =
     do let (givenSig, eq_insts, arbs) = sigGivens sig
-           int_arbs = IM.fromList $ map (\(tsk,(gn,_)) -> (hash (typeSkeletonToTerm tsk), gn)) 
+           int_arbs = IM.fromList $ map (\(tsk,(gn,_)) -> (hash (typeSkeletonToTerm tsk), gn))
                                   $ Map.assocs arbs
            simpl_int_arbs = IM.fromList $ map (\(tsk,(_,(GivenFun {given_info=gv@GivenVar{}})))
-                                            -> (hash (typeSkeletonToTerm tsk), gvToNameNoType gv)) 
+                                            -> (hash (typeSkeletonToTerm tsk), gvToNameNoType gv))
                                         $ Map.assocs arbs
            sig_ty_cons = Map.keys eq_insts
            complSig = sig <> givenSig
@@ -348,17 +349,17 @@ synthSpec sigs =
            gnodes = addSyms id (generalize scope_comps)
            anyArg = Node $ map (\(s,t) -> Edge s [t]) $
                         (gnodes givens) ++ gnodes (Map.assocs skels)
-           scope_terms = getAllTerms $ refold $ reduceFully 
+           scope_terms = getAllTerms $ refold $ reduceFully
                                      $ union $ mtk scope_comps anyArg False 1
            scope_term_ty sig (Term (Symbol s) _) = sfTypeRep (sig Map.! s)
-            
+
            scope_terms_w_ty :: [(TypeSkeleton, Term)]
            scope_terms_w_ty = map (\t -> (scope_term_ty complSig t, npTerm' t)) scope_terms
            scope_uniques = Map.unionsWith (++) $ map (\(tsk,t) -> Map.singleton tsk [t])
                                                  scope_terms_w_ty
 
-                            
-                            
+
+
 
        -- putStrLn "givens"
        -- putStrLn "------------------------------------------------------------"
@@ -439,7 +440,7 @@ synthSpec sigs =
                          "" lvl_num so_far
             let toText e = T.pack $ ppNpTerm $ npTerm e
                 -- unique_args = (concatMap (\(t,es) -> map ((,typeToFta t) . Symbol . toText ) es)
-                --                 $ (Map.assocs (Map.unionWith 
+                --                 $ (Map.assocs (Map.unionWith
                 --                                 (\a b -> nubHash (a ++ b))
                 --                                 unique_terms scope_uniques)))
                 -- any_unique_arg = Node $ map (\(s,t) -> Edge s [t]) unique_args
@@ -459,11 +460,11 @@ synthSpec sigs =
             --
             let Rewrite rw_seen _ = rwrts
                 shouldPrune uv (Left _) =
-                  do uvv <- getUVarValue (intToUVar 0) 
+                  do uvv <- getUVarValue (intToUVar 0)
                      case uvv of
                         UVarEnumerated t ->
                             do stf0 <- simplify <$> expandPartialTermFrag t
-                               return $ in_rw stf0 
+                               return $ in_rw stf0
                         _ -> return False
                   where in_rw t@(Term _ args) = (hash t) `IntSet.member`
                                                 rw_set || any in_rw args
@@ -481,14 +482,14 @@ synthSpec sigs =
                                                             simplify v]
                 simplify (Term s [_]) = Term s []
                 simplify t = t
-                matchesShape (Term (Symbol s1) a1) t2@(Term (Symbol s2) a2) 
+                matchesShape (Term (Symbol s1) a1) t2@(Term (Symbol s2) a2)
                     | s1 == s2, length a1 == length a2,
                       and (zipWith matchesShape a1 a2) = True
                     | T.isPrefixOf "<v" s2,
                        length a1 == length a2 =  True
                     | otherwise = any (flip matchesShape t2) a1
 
-                      
+
                 terms = getAllTermsPrune shouldPrune rewritten
             -- putStrLn "rw-terms"
             -- mapM_ print rewrite_terms
@@ -517,7 +518,7 @@ synthSpec sigs =
                     runTest eq_inst sig t =
                         -- We test 100x per variable, but for constants we
                         -- need only test once!
-                        let nvs = 100 
+                        let nvs = 100
                             qc_args' = qc_args {QC.maxSuccess = nvs}
                         in collectStats $ QC.isSuccess <$>
                                            (QC.quickCheckWithResult qc_args' $
@@ -532,7 +533,7 @@ synthSpec sigs =
                     testAllPar eq_inst sig [] = return Nothing
                     testAllPar eq_inst sig terms =
                       do n <- CC.getNumCapabilities
-                         if n == 1 
+                         if n == 1
                          then testAll eq_inst sig terms
                          else if n >= length terms
                               then testAllPar' [] $ map (:[]) terms
@@ -555,7 +556,7 @@ synthSpec sigs =
                             -- just finish it
                             testAllPar' as [] = firstSuccessful as
                             -- otherwise, we have to start the work (and we check if we've finished anything so far)
-                            testAllPar' as (c:cs) = 
+                            testAllPar' as (c:cs) =
                                 CCA.withAsync (testAll eq_inst sig c) $
                                     \a -> testAllPar' (a:as) cs
                     testAllInOrderAsync :: Dynamic -> Sig -> [Term] -> IO (Maybe Term)
@@ -580,7 +581,7 @@ synthSpec sigs =
                 case holds of
                     Nothing -> do refreshCount ("exploring " ++ (T.unpack $ ppTy current_ty)) ""
                                                -- (" (" ++ (show $ length terms) ++ " left at this size)")
-                                               
+
                                                "" lvl sf'
                                   go' GoState { so_far = sf',
                                                 current_terms = terms,
@@ -595,12 +596,12 @@ synthSpec sigs =
                               -- of the generalized laws, because we test
                               -- them in order.
                               fmap ( reverse
-                                   . sortOn (sum . Map.elems . countVars gsig)
                                    . filter (\l -> hash l /= hash t)) $
                                     generalizeLaw complSig $ npTerm' t
-                        
+
                         -- If we don't find a more general law, we use the one
                         -- we found.
+                        --mapM_ print glaws
                         refreshCount "generalizing" "" ("(" ++ show (length glaws) ++ " possibilities...)") lvl sf'
                         most_general <- fromMaybe t <$> testAllInOrderAsync eq_inst gsig glaws
                         let (Term "(==)" [_,_,mgrhs]) = canonicalize gsig most_general
@@ -631,7 +632,7 @@ synthSpec sigs =
                                 current_terms = terms,
                                 rewrite_terms = (toTemplate gsig rewrite_term):rewrite_terms,
                                 ..}
-              where skip seen = do go' GoState{so_far = so_far+1, 
+              where skip seen = do go' GoState{so_far = so_far+1,
                                                 current_terms = terms, ..}
                     -- wrt variable renaming
                     canon_np = canonicalize complSig np_term
@@ -641,7 +642,7 @@ synthSpec sigs =
                                                , o, wip_rewritten]
                     -- we're probably missing out on some rewrites due to
                     -- us operating on the flipped term
-                    
+
                     (wip_rewritten, rwrts') = (np_term, rwrts)
                     -- (wip_rewritten, rwrts') = (fromMaybe rwrts) <$>
                     --                             badRewrite rwrts np_term
@@ -702,7 +703,7 @@ refreshCount pre mid post size i = putStr (o ++ fill ++ "\r") >> flushStdHandles
             ++ pre ++ " terms of size " ++ show size
              ++ mid
             ++ ", " ++ show i ++ " examined so far. "
-        o = if length (o' ++ post) <= 120 then o' ++ post 
+        o = if length (o' ++ post) <= 120 then o' ++ post
             else (take 117 (o' ++ post)) ++ "..."
         fill = replicate (max 0 (length o - 120)) ' '
 
@@ -723,6 +724,8 @@ ppTy (TFun arg ret) = "(" <> ppTy arg <> " -> " <> ppTy ret <> ")"
 -- 4. Look at DbOpt file for examples of how we can apply rewrites directly.
 -- 8. We should be able to do the "rewrites" by cleverly constructing the ECTAs
 --
+-- 11. make term a pattern synonym and compute the hash when we construct
+--     the term.
 --
 -- Check for equality in the presence of non-total functions, e.g.
 -- reverse (reverse xs) = xs. Allow an option to add more information for this,
