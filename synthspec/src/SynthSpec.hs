@@ -132,26 +132,35 @@ generalizeLaw sig t@(Term "(==)" [ty,lhs,rhs]) =
     in (rhsig,  -- We want the most general one first with the
                 -- lowest variables. We just keep the first one
                 -- so it's OK if we generate too many.
-                map fst $ concat $ reverse $
                 -- TODO: we can probably do better by splitting the
                 -- varIds here into the lhs and rhs, but we leave it like
                 -- this for now. We count the number of variables of each
                 -- type and sort by that. Note that from the way we generate
                 -- it, the terms are already sorted by varIds.
-                groupBy ((==) `on` (map fst . snd)) $ sortOn (map fst . snd) $
-                nubOrdOn (map snd . snd) $ map (fmap (map renameAndCount) ) $
-                filter (any prune . snd) $ map (\t -> (t, varIds t)) $
+                map fst $ concat $ reverse $ -- then we reverse and concat,
+                                             -- so that the terms with the
+                                             -- biggest number of variables
+                                             -- are first.
+                groupBy ((==) `on` (map fst . snd)) $ -- we group by number of
+                                                      -- variables of each type
+                sortOn (map fst . snd) $ -- we sort on the number of variables
+                                         -- of each type
+                nubOrdOn (map snd . snd) $ -- we remove those that are equal
+                                           -- modulo renaming
+                map (fmap (map countAndRename) ) $ -- we count and rename
+                filter ( not . all (all (== 0)) . snd) $ -- the original term
+                filter (any prune . snd) $ -- we remove things that are
+                                           -- obviously equal
+                map (\t -> (t, varIds t)) $
                 [Term "(==)" [ty, lhs',rhs'] | lhs' <- lhss, rhs' <- rhss])
   where var_count = Map.unionWith max (countVars sig lhs) (countVars sig rhs)
         -- If the list doesn't start with 0 and has a variable outside
         -- the list, we can disregard it immediately
         prune :: [Int] -> Bool
-        prune [] = False
-        prune (0:r) | lr <- length r,
-                      lr == 0,  any (lr <=) r  = False
+        prune (0:r) | lr <- length r, lr == 0 || any (lr <=) r  = False
         prune _ = True
-        renameAndCount :: [Int] -> (Int, [Int])
-        renameAndCount var_ids = (IntSet.size u_set, map (uv_mp IM.!) var_ids)
+        countAndRename :: [Int] -> (Int, [Int])
+        countAndRename var_ids = (IntSet.size u_set, map (uv_mp IM.!) var_ids)
           where u_set = IntSet.fromList var_ids
                 u_vars = IntSet.toAscList u_set
                 uv_mp = IM.fromList $ zip u_vars [0..]
