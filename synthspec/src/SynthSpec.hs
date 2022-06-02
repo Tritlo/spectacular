@@ -8,11 +8,10 @@ module SynthSpec (
     synthSpec
 ) where
 
--- slower, but uses less memory.
--- import qualified Data.Map.Strict as Map
--- import Data.Map.Strict (Map)
-import qualified Data.Map.Lazy as Map
-import Data.Map.Lazy (Map)
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
+-- import qualified Data.Map.Lazy as Map
+-- import Data.Map.Lazy (Map)
 import Data.Tuple (swap)
 -- import qualified Data.Map as Map
 -- import Data.Map (Map)
@@ -279,14 +278,14 @@ badRewrite rwr@(Rewrite hole_rules mp) orig_term
 
 
 
-data GoState = GoState {seen :: IntSet, --hashed integers
+data GoState = GoState {seen :: !IntSet, --hashed integers
                         rwrts :: Rewrite,
                         unique_terms :: !(Map TypeSkeleton [Term]),
                         stecta :: StEcta,
-                        type_cons :: [TypeSkeleton],
+                        type_cons :: ![TypeSkeleton],
                         current_ty :: TypeSkeleton,
-                        so_far :: Int,
-                        lvl_nums :: [Int],
+                        so_far :: !Int,
+                        lvl_nums :: ![Int],
                         law_nums :: [Int],
                         current_terms :: [Term],
                         rewrite_terms :: ![Term]
@@ -490,16 +489,12 @@ synthSpec sigs =
                     | otherwise = any (flip matchesShape t2) a1
 
                       
-                -- M.getAny (crush c_f n)
-                -- c_f c_n = M.Any (any (nodeRepresents c_n) rewrite_terms)
-                    -- trace "Node encountered!" False
                 terms = getAllTermsPrune shouldPrune rewritten
             -- putStrLn "rw-terms"
             -- mapM_ print rewrite_terms
             -- putStrLn "rw-terms"
             -- putStrLn "--------"
             -- mapM_ (print . tf) rewrite_terms
-            -- putStrLn "\rGenerating terms...                   "
             -- mapM_ (putStrLn . ppNpTerm . npTerm') terms
             -- putStrLn "-------"
             go' GoState{current_terms = terms,
