@@ -319,13 +319,15 @@ shouldPrune (templs,rws) uv (Left tf) = do
 -- we wouldn't encounter that one.
 shouldPrune (templs,rws) uv (Right n) = do
     return (any (nodeRepresentsTemplate n) (templs ++ rws))
+    -- let cf n = M.Any (any (nodeRepresentsTemplate n) $ templs)
+    --     will_encounter =  M.getAny (crush (onNormalNodes cf) n)
     -- let rmIfRep n | any (nodeRepresentsTemplate n) (templs ++ rws) = EmptyNode
     --     rmIfRep n = n
     --     newNode = mapNodes rmIfRep n
-    -- mergeNodeIntoUVarVal uv newNode mempty
+    -- UVarUnenumerated _ scs <- getUVarValue uv
+    -- mergeNodeIntoUVarVal uv newNode scs
     -- return False
-    -- let cf n = M.Any (any (nodeRepresents n) $ templs)
-    -- in return $ M.getAny (crush (onNormalNodes cf) n)
+    -- in return $
 hasTemplate :: Term -> Bool
 hasTemplate (Term (Symbol s) args) = T.isPrefixOf "<v" s || any hasTemplate args
 
