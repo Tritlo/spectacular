@@ -41,4 +41,4 @@ lists-no-pro7:
 	/usr/bin/time -v ./list-no-pro 7 +RTS -N1 -RTS
 
 huge-no-pro7: 
-	/usr/bin/time -v ./hlus 7 +RTS -N -RTS
+	/usr/bin/time -v ./hlus 7 +RTS -N1 -RTS

@@ -332,7 +332,8 @@ data GoState = GoState {seen :: !IntSet, --hashed integers
                         cur_lvl :: Int,
                         law_nums :: [Int],
                         current_terms :: [Term],
-                        rewrite_terms :: ![Term]
+                        rewrite_terms :: ![Term],
+                        phase_number :: Int
                         } deriving (Show)
 
 
@@ -383,13 +384,14 @@ synthSpec sigs =
                     mapp (union $ mtk comps anyArg False i)
                          (union $ mtk comps anyArg True (k-i))
 
-       let givens = Map.assocs $ (sfTypeRep) <$> givenSig
-           skels =  Map.assocs $ (generalizeType . monomorphiseType . sfTypeRep) <$> sig
-           scope_comps = skels ++ givens
-           addSyms st tt = map (Bi.bimap (Symbol . st) (tt . typeToFta))
-           ngnodes = addSyms id id
-           gnodes = addSyms id (generalize scope_comps)
-           anyArg = Node $ map (\(s,t) -> Edge s [t]) $ ngnodes givens ++ gnodes skels
+       let mkStecta givenTrans skelTrans = StEcta { scope_comps = sc, any_arg = ag}
+             where skels =  Map.assocs $ (skelTrans  . sfTypeRep) <$> sig
+                   givens = Map.assocs $ (givenTrans . sfTypeRep) <$> givenSig
+                   sc = skels ++ givens
+                   ag = Node $ map (\(s,t) -> Edge s [t]) $ ngnodes givens ++ gnodes skels
+                   addSyms st tt = map (Bi.bimap (Symbol . st) (tt . typeToFta))
+                   ngnodes = addSyms id id
+                   gnodes = addSyms id (generalize sc)
            -- scope_terms = getAllTerms $ refold $ reduceFully
            --                           $ union $ mtk scope_comps anyArg False 1
            -- scope_term_ty sig (Term (Symbol s) _) = sfTypeRep (sig Map.! s)
@@ -398,26 +400,11 @@ synthSpec sigs =
            -- scope_terms_w_ty = map (\t -> (scope_term_ty complSig t, npTerm' t)) scope_terms
            -- scope_uniques = Map.unionsWith (++) $ map (\(tsk,t) -> Map.singleton tsk [t])
                                                  -- scope_terms_w_ty
+        
+       -- To make it go faster we split it up into two phases:
+       -- + a fully monomorphic phase
+       -- + a generalized monomorphic phase
 
-
-
-
-       -- putStrLn "givens"
-       -- putStrLn "------------------------------------------------------------"
-       -- mapM_ print givens
-       -- putStrLn "skels"
-       -- putStrLn "------------------------------------------------------------"
-       -- print skels
-       -- putStrLn "req"
-       -- putStrLn "------------------------------------------------------------"
-       -- print reqSkels
-       -- print boolTy
-       -- let res = getAllTerms $ refold $ reduceFully $ filterType anyArg resNode
-           -- TODO: make it generate the terms in a more "sane" order.
-           -- even_more_terms =
-           --   map prettyTerm $
-           --     concatMap (getAllTerms . refold . reduceFully . flip filterType resNode )
-           --               (rtkUpToKAtLeast1 argNodes scope_comps anyArg True 8)
        putStrLn "Laws according to Haskell's (==):"
        putStrLn "---------------------------------"
        let qc_args = QC.stdArgs { QC.chatty = False,
@@ -431,15 +418,26 @@ synthSpec sigs =
                                   rewrite_terms = [],
                                   rwrts = rwrts,
                                   unique_terms = Map.empty,
-                                  stecta = StEcta{ scope_comps = scope_comps,
-                                                   any_arg = anyArg},
+                                  stecta = mkStecta id monomorphiseType,
                                   so_far = 0,
                                   cur_lvl = 0,
                                   lvl_nums = [1..n],
                                   law_nums = [1..],
+                                  phase_number = 1,
                                   current_terms = [] }
            go' :: GoState -> IO ()
            go' (GoState{ lvl_nums = [],
+                         phase_number = 1,
+                        current_terms = [] , ..}) = do 
+                putStrLn $ "Monomorphic phase finished.." ++ show so_far ++ " terms examined."
+                putStrLn $ "Startin mono-polymorphic phase...."
+                go' GoState{ cur_lvl = 0,
+                             phase_number = 2,
+                             lvl_nums= [1..cur_lvl],
+                             stecta = mkStecta id (generalizeType . monomorphiseType),
+                             current_terms=[],..}
+           go' (GoState{ lvl_nums = [],
+                         phase_number = 2,
                         current_terms = [] , ..}) = do
              putStrLn $ "Done! " ++ show so_far ++ " terms examined."
              putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
@@ -456,7 +454,7 @@ synthSpec sigs =
                         current_terms = [],..} = do
             --putStrLn ("Checking " ++ (T.unpack $ ppTy tc) ++ " with size " ++ show lvl_num ++ "...")
 
-            refreshCount "generating ECTA" "" "" lvl_num so_far
+            refreshCount "Folding ECTA" "" "" lvl_num so_far
             let toText e = T.pack $ ppNpTerm $ npTerm e
                 -- unique_args = (concatMap (\(t,es) -> map ((,typeToFta t) . Symbol . toText ) es)
                 --                 $ (Map.assocs (Map.unionWith
