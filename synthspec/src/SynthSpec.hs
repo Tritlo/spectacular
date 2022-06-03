@@ -1,7 +1,7 @@
 {-# OPTIONS -fno-max-valid-hole-fits #-}
 {-# LANGUAGE OverloadedStrings, TypeApplications, RecordWildCards,
              TupleSections, StandaloneDeriving, DeriveAnyClass,
-             DeriveGeneric #-}
+             DeriveGeneric, BangPatterns #-}
 module SynthSpec (
     module SynthSpec.Types,
     module Data.Proxy,
@@ -32,8 +32,9 @@ import Data.ECTA
 import Data.ECTA.Term
 import Data.ECTA.Internal.ECTA.Operations (nodeRepresents)
 import Data.ECTA.Internal.ECTA.Enumeration
-    (expandPartialTermFrag, getUVarValue, UVarValue(..), TermFragment(..))
-import Data.Persistent.UnionFind ( uvarToInt, intToUVar )
+    (expandPartialTermFrag, getUVarValue, UVarValue(..), TermFragment(..),
+     getUVarRepresentative, getPruneDeps, addPruneDep, deletePruneDep)
+import Data.Persistent.UnionFind ( uvarToInt, intToUVar, UVar )
 import Data.List hiding (union)
 import qualified Test.QuickCheck as QC
 import Control.Monad (zipWithM_, filterM, when)
@@ -123,7 +124,7 @@ generalizedTerm _ t = [t] -- shouldn't happend
 -- also hold whenever xs == ys. So it suffices to explore laws where we have
 -- only a single generator in scope and then generalizing them.
 generalizeLaw :: Sig -> Term -> (Sig, [Term])
-generalizeLaw sig t@(Term "(==)" [ty,lhs,rhs]) =
+generalizeLaw sig t@(Term "(==)" [ty,lhs,rhs]) = 
     let (lhsig, lhss) = generalizedLaw' sig lhs
         (rhsig, rhss) = generalizedLaw' lhsig rhs
         varIds = Map.elems . termVarIds rhsig -- we can't simplify more,
@@ -286,50 +287,9 @@ termSize (Term s args) = 1 + sum (map termSize args)
 -- then we can rewrite all instances of (_ :: [A] ++ []) to (_::[A])
 -- best would probably be to apply this in the node.
 
-badRewrite :: Rewrite -> Term -> (Term, Maybe Rewrite)
-badRewrite rwr@(Rewrite hole_rules mp) orig_term
-    | Just smllr <- mp IM.!? (hash term) = (runMatch smllr,Nothing)
-    | (args',mb_rwrs) <- unzip $ map (badRewrite rwr) args,
-      args' /= args =
-        let rwr' = case catMaybes mb_rwrs of
-                     [] -> rwr
-                     rs -> Rewrite hole_rules (IM.unions $ map rwrMap rs)
-            t' = Term s args'
-            (rwt, rwrAfterRewrite) = badRewrite rwr' t'
-            rwr'' = fromMaybe rwr' rwrAfterRewrite
-            finalRwt = case s of
-                        "(==)" -> rwr''
-                        _ -> updRw term rwt rwr''
-        in (runMatch rwt, Just $ simplify finalRwt)
-    | otherwise = (term, Nothing)
-  where runMatch = id -- flip (foldr matchHole) hole_rules
-        term@(Term s args) = runMatch orig_term
-        simplify :: Rewrite -> Rewrite
-        simplify (Rewrite h rw) = if rw == rw'
-                                   then (Rewrite h rw)
-                                   else simplify (Rewrite h rw')
-         where shortCircuit :: (Int,Term) -> (Int, Term)
-               shortCircuit (k,t) = case rw IM.!? (hash t) of
-                                      Just r -> shortCircuit (k,r)
-                                      _ -> (k,t)
-
-               rw' = IM.fromAscList $ map shortCircuit $ IM.assocs rw
-
---badRewrite rwr term = (term, Nothing)
---
-anyM :: Monad m => (a -> m Bool) -> [a] -> m Bool
-anyM check [] = return False
-anyM check (a:as) = do r <- check a
-                       if r then return True
-                       else anyM check as
-allM :: Monad m => (a -> m Bool) -> [a] -> m Bool
-allM check [] = return True
-allM check (a:as) = do r <- check a
-                       if not r then return False
-                       else allM check as
 
 -- TODO: we're maybe calling getUVarValue too often here.
-fragRepresents :: TermFragment -> [Term]  -> EnumerateM Bool
+fragRepresents :: TermFragment -> [Term] -> EnumerateM Bool
 fragRepresents (TermFragmentNode "filter" [_,t]) rwrs = fragRepresents t rwrs
 fragRepresents (TermFragmentNode "app" [_,_,f,v]) rwrs =
     fragRepresents (TermFragmentNode "app" [f,v]) rwrs
@@ -337,35 +297,51 @@ fragRepresents (TermFragmentNode s [_]) rwrs =
     fragRepresents (TermFragmentNode s []) rwrs
 
 fragRepresents (TermFragmentNode s ts) rwrs = do
-    subs_match <- anyM (flip fragRepresents rwrs) ts
-    if subs_match then return True
-    else anyM checkSub $ filter ((== s) . fst) (map unTerm rwrs)
+    matches <- checkSelf $ map snd $ filter ((== s) . fst) (map unTerm rwrs)
+     
+    if matches then return True
+    else checkChildren ts
     where unTerm (Term "filter" [_,t]) = unTerm t
           unTerm (Term "app" [_, _, f,v]) = ("app", [f,v])
           unTerm (Term s [_]) = (s, [])
-          unTerm t@(Term s a) = error ("unterm panic!! " ++ show t)
-          checkSub (_,subrws) | length subrws == length ts
-            = allM (uncurry fragRepresents) $ zip ts $ map (:[]) subrws
-          checkSub _ = return False
+
+          checkSelf :: [[Term]] -> EnumerateM Bool
+          checkSelf [] = return False
+          checkSelf (subrw:subrws) = 
+            do res <- checkAll toCheck
+               if not res then return False
+               else checkSelf subrws
+            where toCheck = zipWith (\ t srw -> (t,[srw])) ts subrw
+                  checkAll :: [(TermFragment, [Term])] 
+                           -> EnumerateM Bool
+                  checkAll [] = return True
+                  checkAll ((t,rw):rws) = do
+                    res <- fragRepresents t rw
+                    if not res then return False
+                    else checkAll rws
+            
+          checkChildren :: [TermFragment] -> EnumerateM Bool
+          checkChildren [] = return False
+          checkChildren (tf:tfs) =
+            do res <- fragRepresents tf rwrs
+               if res then return True
+               else checkChildren tfs
 
 fragRepresents (TermFragmentUVar uv) rwrs =
     do val <- getUVarValue uv
        case val of
            UVarEnumerated t -> fragRepresents t rwrs
-           _ -> return False
-
-
+           _ -> const False <$> addPruneDep (uvarToInt uv) rwrs
 
 
 
 data GoState = GoState {seen :: !IntSet, --hashed integers
                         rwrts :: Rewrite,
-                        unique_terms :: !(Map TypeSkeleton [Term]),
+                        unique_terms :: !(Map Term [Term]),
                         stecta :: StEcta,
-                        type_cons :: ![TypeSkeleton],
-                        current_ty :: TypeSkeleton,
                         so_far :: !Int,
                         lvl_nums :: ![Int],
+                        cur_lvl :: Int,
                         law_nums :: [Int],
                         current_terms :: [Term],
                         rewrite_terms :: ![Term]
@@ -382,6 +358,8 @@ synthSpec sigs =
                                             -> (hash (typeSkeletonToTerm tsk), gvToNameNoType gv))
                                         $ Map.assocs arbs
            sig_ty_cons = Map.keys eq_insts
+           term_eq_insts = Map.fromList $ map (Bi.first typeSkeletonToTerm)
+                                        $ Map.assocs eq_insts
            complSig = sig <> givenSig
            sig = mconcat sigs
        -- putStrLn "sig"
@@ -471,16 +449,14 @@ synthSpec sigs =
                                   unique_terms = Map.empty,
                                   stecta = StEcta{ scope_comps = scope_comps,
                                                    any_arg = anyArg},
-                                  type_cons = sig_ty_cons,
-                                  current_ty = error "no type yet!",
                                   so_far = 0,
+                                  cur_lvl = 0,
                                   lvl_nums = [1..n],
                                   law_nums = [1..],
                                   current_terms = [] }
            go' :: GoState -> IO ()
            go' (GoState{ lvl_nums = [],
-                        current_terms = [],
-                        type_cons = _, ..}) = do
+                        current_terms = [] , ..}) = do
              putStrLn $ "Done! " ++ show so_far ++ " terms examined."
              putStrLn $ show (sum $ map (length) $ Map.elems unique_terms) ++ " unique terms discovered."
             --  when (not (null (rwrMap rwrts))) $ do
@@ -491,32 +467,12 @@ synthSpec sigs =
             --    putStrLn "---------------"
              reportStats
              return ()
-           go' (GoState{ type_cons = [],
-                         lvl_nums = (lvl_num:lvl_nums),
-                         current_terms = [],
-                         ..}) = do
-            -- let str = ("\r" ++ show so_far ++ " terms examined so far")
-            -- putStrLn (str ++ replicate (max 0 (80 - length str)) ' ')
-            -- putStrLn $ show (sum $ map (length) $ Map.elems unique_terms) ++ " unique terms discovered."
-            -- If we find any rewrites for the scope, we apply them here.
-            -- when (not (null (rwrMap rwrts))) $ do
-            --   putStrLn "Current rewrites:"
-            --   putStrLn "-----------------"
-            --   mapM_ (\(k,v) -> putStrLn ((ppNpTerm k) ++ " ==> " ++ (ppNpTerm v)))
-            --         (Map.assocs (rwrMap rwrts))
-            --   putStrLn "-----------------"
-            stecta' <- updateEcta rwrts stecta
-            go' GoState { stecta=stecta',
-                          type_cons = sig_ty_cons,
-                          current_terms =[], ..}
            go' GoState {stecta=stecta@StEcta{..},
-                        type_cons = (tc:tcs),
-                        lvl_nums=lvl_nums@(lvl_num:_),
+                        lvl_nums=(lvl_num:lvl_nums),
                         current_terms = [],..} = do
             --putStrLn ("Checking " ++ (T.unpack $ ppTy tc) ++ " with size " ++ show lvl_num ++ "...")
 
-            refreshCount "generating ECTA" (" for type " ++ (T.unpack $ ppTy tc))
-                         "" lvl_num so_far
+            refreshCount "generating ECTA" "" "" lvl_num so_far
             let toText e = T.pack $ ppNpTerm $ npTerm e
                 -- unique_args = (concatMap (\(t,es) -> map ((,typeToFta t) . Symbol . toText ) es)
                 --                 $ (Map.assocs (Map.unionWith
@@ -528,32 +484,49 @@ synthSpec sigs =
             -- filtered_and_reduced <- fmap refold <$> collectStats $
             --     reduceFullyAndLog $ filterType nextNode (typeToFta tc)
             filtered_and_reduced <- fmap refold <$> collectStats $
-                (return $ reduceFully $ filterType nextNode (typeToFta tc))
+                (return $ reduceFully $ union (map (filterType nextNode . typeToFta) sig_ty_cons))
 
 
-            rewritten <- applyRewrites rwrts filtered_and_reduced
             -- putStrLn "rw-terms"
             -- putStrLn "--------"
             -- mapM_ (print ) rewrite_terms
             -- putStrLn "--------"
             --
 
-            let shouldPrune uv (Left _) = (,Nothing) <$> fragRepresents (TermFragmentUVar (intToUVar 0)) rws
-                shouldPrune _ (Right n) = return $ (M.getAny (crush (onNormalNodes cf) n), Nothing)
+            let shouldPrune :: UVar
+                            -> Either TermFragment Node
+                            -> EnumerateM Bool
+                shouldPrune uv (Left tf) = do
+                    deps <- getPruneDeps 
+                    -- traceShowM (uv, tf)
+                    -- traceShowM deps
+                    -- tv <- getUVarValue (intToUVar 0)
+                    -- case tv of
+                    --     UVarEnumerated t -> expandPartialTermFrag t >>= traceShowM
+                    --     _ -> return ()
+                    if IM.null deps
+                    then if (uv == intToUVar 0)  
+                         then {-# SCC "fresh-start" #-} fragRepresents tf rws
+                         else return False -- a type is being selected.
+                    else case deps IM.!? (uvarToInt uv) of
+                            Just rw' -> do deletePruneDep (uvarToInt uv)
+                                           {-# SCC "resume" #-} fragRepresents tf rw'
+                            _ -> return False
+                shouldPrune _ (Right n) =
+                    return $ M.getAny (crush (onNormalNodes cf) n)
                 cf n = M.Any (any (nodeRepresents n) templs)
                 (templs, rws) = partition hasTemplate rewrite_terms
                 hasTemplate (Term (Symbol s) args) = T.isPrefixOf "<v" s || any hasTemplate args
-                terms = getAllTermsPrune shouldPrune rewritten
+                terms = getAllTermsPrune shouldPrune $ filtered_and_reduced
 
             go' GoState{current_terms = terms,
-                        type_cons = tcs,
-                        current_ty = tc,..}
+                        cur_lvl = lvl_num, ..}
            go' GoState{law_nums = law_nums@(n:ns),
-                       current_terms = (full_term:terms),
-                       lvl_nums = lvl_nums@(lvl:_),..}
-             | not (current_ty `Map.member` unique_terms) =
+                       current_terms = (full_term:terms),..}
+             | Term "filter" [current_ty,_] <- full_term,
+               not (current_ty `Map.member` unique_terms) =
                 go' (GoState{current_terms = terms,
-                            unique_terms = Map.insert current_ty [wip_rewritten] unique_terms,
+                            unique_terms = Map.insert current_ty [np_term] unique_terms,
                             ..})
              | (hash np_term) `IntSet.member` seen = skip seen
              | hasSmallerRewrite rwrts' np_term = skip (IntSet.insert (hash np_term) seen)
@@ -618,18 +591,18 @@ synthSpec sigs =
                                                  return (Just a)
                                          else CCA.wait asref
 
-                refreshCount ("exploring " ++ (T.unpack $ ppTy current_ty)) ""
+                refreshCount ("exploring " ++ (show current_ty)) ""
                              -- (" (" ++ (show $ length terms) ++ " left at this size)")
-                             ("(" ++ (show $ length terms_to_test) ++ " to test...)") lvl so_far
-                holds <- testAllPar eq_inst complSig terms_to_test
+                             ("(" ++ (show $ length terms_to_test) ++ " to test...)") cur_lvl so_far
+                holds <- testAllInOrderAsync eq_inst complSig terms_to_test
 
 
                 let sf' = so_far + 1
                 case holds of
-                    Nothing -> do refreshCount ("exploring " ++ (T.unpack $ ppTy current_ty)) ""
+                    Nothing -> do refreshCount ("exploring " ++ (show current_ty)) ""
                                                -- (" (" ++ (show $ length terms) ++ " left at this size)")
 
-                                               "" lvl sf'
+                                               "" cur_lvl sf'
                                   go' GoState { so_far = sf',
                                                 current_terms = terms,
                                                 unique_terms =
@@ -647,7 +620,7 @@ synthSpec sigs =
                         -- If we don't find a more general law, we use the one
                         -- we found.
                         --mapM_ print glaws
-                        refreshCount "generalizing" "" ("(" ++ show (length glaws) ++ " possibilities...)") lvl sf'
+                        refreshCount "generalizing" "" ("(" ++ show (length glaws) ++ " possibilities...)") cur_lvl sf'
                         most_general <- fromMaybe t <$> testAllInOrderAsync eq_inst gsig glaws
                         let (Term "(==)" [_,_,mgrhs]) = canonicalize gsig most_general
 
@@ -664,9 +637,9 @@ synthSpec sigs =
                         let law_str = (show n <> ". ") <> (ppNpTerm $ most_general)
                             lsl = max 0 (80 - length law_str)
                         putStrLn ("\r" ++ law_str ++ replicate lsl ' ')
-                        refreshCount  ("exploring " ++ (T.unpack $ ppTy current_ty))  ""
+                        refreshCount  ("exploring " ++ (show current_ty))  ""
                                       -- (" (" ++ (show $ length terms) ++ " left at this size)")
-                                       "" lvl sf'
+                                       "" cur_lvl sf'
                         -- continue sf' rwrts'' ns terms
                         let Term "filter" [_, rewrite_term] = full_term
                         go' GoState {
@@ -682,15 +655,14 @@ synthSpec sigs =
                     -- wrt variable renaming
                     canon_np = canonicalize complSig np_term
                     np_term = npTerm' full_term
-                    (eq_txt, eq_inst) = eq_insts Map.! current_ty
+                    Term "filter" [current_ty,_] = full_term
+                    (eq_txt, eq_inst) = term_eq_insts Map.! current_ty
                     termToTest o = Term "(==)" [ Term (Symbol eq_txt) []
                                                , o, wip_rewritten]
                     -- we're probably missing out on some rewrites due to
                     -- us operating on the flipped term
 
                     (wip_rewritten, rwrts') = (np_term, rwrts)
-                    -- (wip_rewritten, rwrts') = (fromMaybe rwrts) <$>
-                    --                             badRewrite rwrts np_term
        args <- Env.getArgs
        let size = case args of
                     arg:_ | Just n <- TR.readMaybe arg -> n

@@ -15,6 +15,7 @@ module Data.ECTA.Internal.ECTA.Enumeration (
   , uvarCounter
   , uvarRepresentative
   , uvarValues
+  , pruneDeps
   , initEnumerationState
 
 
@@ -26,6 +27,10 @@ module Data.ECTA.Internal.ECTA.Enumeration (
   , getTermFragForUVar
   , runEnumerateM
 
+  , getPruneDeps
+  , getPruneDep
+  , addPruneDep
+  , deletePruneDep
 
   , enumerateNode
   , enumerateEdge
@@ -68,7 +73,8 @@ import Data.ECTA.Term
 import           Data.Persistent.UnionFind ( UnionFind, UVar, uvarToInt, intToUVar, UVarGen )
 import qualified Data.Persistent.UnionFind as UnionFind
 import Data.Text.Extended.Pretty
-import Debug.Trace
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IntSet
 
 -------------------------------------------------------------------------------
 
@@ -140,6 +146,8 @@ data EnumerationState = EnumerationState {
     _uvarCounter        :: UVarGen
   , _uvarRepresentative :: UnionFind
   , _uvarValues         :: Seq UVarValue
+  -- Added for pruning, hardcoded for now.
+  , _pruneDeps          :: !(IntMap.IntMap [Term])
   }
   deriving ( Eq, Ord, Show )
 
@@ -151,6 +159,7 @@ initEnumerationState n = let (uvg, uv) = UnionFind.nextUVar UnionFind.initUVarGe
                          in EnumerationState uvg
                                              (UnionFind.withInitialValues [uv])
                                              (Sequence.singleton (UVarUnenumerated (Just n) Sequence.Empty))
+                                             IntMap.empty
 
 
 
@@ -168,6 +177,26 @@ type EnumerateM = StateT EnumerationState []
 runEnumerateM :: EnumerateM a -> EnumerationState -> [(a, EnumerationState)]
 runEnumerateM = runStateT
 
+-- Prune deps --
+getPruneDeps :: EnumerateM (IntMap.IntMap [Term])
+getPruneDeps = use pruneDeps
+
+getPruneDep :: Int -> EnumerateM (Maybe [Term])
+getPruneDep uv = do pd <- use pruneDeps
+                    return (pd IntMap.!? uv)
+
+addPruneDep :: Int -> [Term] -> EnumerateM ()
+addPruneDep uv rws = pruneDeps %= IntMap.insert uv rws
+
+deletePruneDep :: Int -> EnumerateM ()
+deletePruneDep uv = pruneDeps %= (IntMap.delete uv)
+
+changePruneDep :: Int -> Int -> EnumerateM ()
+changePruneDep src trg = do pd <- getPruneDep src
+                            case pd of
+                              Just ts -> deletePruneDep src >> addPruneDep trg ts
+                              _ -> return ()
+                                         
 
 ---------------------
 -------- UVar accessors
@@ -199,6 +228,7 @@ getUVarRepresentative uv = do uf <- use uvarRepresentative
                               uvarRepresentative .= uf'
                               return uv'
 
+
 ---------------------
 -------- Creating UVar's
 ---------------------
@@ -226,6 +256,7 @@ assimilateUvarVal uvTarg uvSrc
       guard (contents v /= Just EmptyNode)
       uvarValues.(ix $ uvarToInt uvTarg) .= v
       uvarValues.(ix $ uvarToInt uvSrc)  .= UVarEliminated
+      changePruneDep (uvarToInt uvSrc) (uvarToInt uvTarg)
 
 
 mergeNodeIntoUVarVal :: UVar -> Node -> Seq SuspendedConstraint -> EnumerateM ()
@@ -250,6 +281,7 @@ mergeNodeIntoUVarVal uv n scs = do
 refreshReferencedUVars :: EnumerateM ()
 refreshReferencedUVars = do
   values <- use uvarValues
+  
   updated <- traverse (\case UVarUnenumerated n scs ->
                                UVarUnenumerated n <$>
                                    mapM (\sc -> SuspendedConstraint (scGetPathTrie sc)
@@ -392,46 +424,45 @@ enumerateOutFirstExpandableUVar = do
     ExpansionStuck   -> mzero
 
 enumerateFully :: EnumerateM ()
-enumerateFully  = enumerateFully' False Nothing (\ _ _ -> return (False, Nothing))
+enumerateFully  =  const () <$> enumerateFully' False (\ _ _ -> return False)
 
 enumerateFully' :: Bool
-                -> Maybe UVar
-                -> (UVar -> Either TermFragment Node -> EnumerateM (Bool, Maybe UVar))
-                -> EnumerateM ()
-enumerateFully' eager_suspend mb_hint shouldPrune = do
+                -> (UVar -> Either TermFragment Node -> EnumerateM Bool)
+                -> EnumerateM Bool
+enumerateFully' eager_suspend shouldPrune = do
   muv <- if eager_suspend
-         then case mb_hint of
-                Just uv ->
-                    do cs <- findExpandableUVars
-                       return $ case cs of
-                                 Nothing -> ExpansionDone
-                                 -- The hint is a candidate!
-                                 Just mp | (uvarToInt uv) `IntMap.member` mp ->
-                                      ExpansionNext uv
-                                 -- rest is like firstExpandableUVar
-                                 Just mp ->
-                                    case IntMap.lookupMin mp of
-                                     Nothing -> ExpansionStuck
-                                     Just (i, _) -> ExpansionNext (intToUVar i)
-                _ -> lastExpandableUVar
-         else firstExpandableUVar
+        then do hints <- IntMap.keysSet <$> getPruneDeps
+                if IntSet.null hints
+                -- if we aren't targeting any terms, just expand the first one
+                then {-# SCC "no-hints" #-} firstExpandableUVar
+                else do expandable <- findExpandableUVars
+                        case expandable of 
+                          Nothing -> return ExpansionDone
+                          Just ucm | IntMap.null ucm -> return ExpansionStuck
+                          Just ucm -> let expSet = IntMap.keysSet ucm
+                                          inters = IntSet.intersection expSet hints
+                                      in return $ ExpansionNext $ intToUVar
+                                                -- We synthesize from the back
+                                                -- so we see more subterms
+                                                -- asap.
+                                                $ IntSet.findMax inters
+                                          
+                else firstExpandableUVar
   case muv of
    ExpansionStuck   -> mzero
-   ExpansionDone    -> return ()
+   ExpansionDone    -> return True
    ExpansionNext uv ->
-    let continue = do tf <- enumerateOutUVar' eager_suspend uv
-                      (spr, mb_hint') <- shouldPrune uv (Left tf)
-                      unless spr $ enumerateFully'
-                                    eager_suspend
-                                    (maybe mb_hint Just mb_hint')
-                                    shouldPrune
+    let continue = do
+          tf <- enumerateOutUVar' eager_suspend uv
+          spr <- shouldPrune uv (Left tf)
+          if spr then mzero
+          else enumerateFully' eager_suspend shouldPrune
     in do UVarUnenumerated (Just n) scs <- getUVarValue uv
-          (should_prune_res, _) <- shouldPrune uv (Right n)
-          if should_prune_res then return ()
-          else if scs == Sequence.Empty then case n of
-                                              Mu _ -> return ()
-                                              _    -> continue
-                                        else continue
+          case n of 
+            Mu _ | scs == Sequence.empty -> return True
+            _ -> do should_prune_res <- shouldPrune uv (Right n)
+                    if should_prune_res then mzero else continue 
+
 
 
 ---------------------
@@ -456,7 +487,6 @@ expandTermFrag (TermFragmentUVar uv)  =
        case val of
         UVarEnumerated t                 -> expandTermFrag t
         UVarUnenumerated (Just (Mu _)) _ -> return $ Term "Mu" []
-        -- TODO: here it will be the suspended one.
         _                                -> 
             error "expandTermFrag: Non-recursive, unenumerated node encountered"
 
@@ -464,14 +494,6 @@ expandUVar :: UVar -> EnumerateM Term
 expandUVar uv = do UVarEnumerated t <- getUVarValue uv
                    expandTermFrag t
 
-fullyEnumerated :: TermFragment -> EnumerateM Bool
-fullyEnumerated (TermFragmentNode _ ts) = and <$> mapM fullyEnumerated ts
-fullyEnumerated (TermFragmentUVar uv) =
-    do val <- getUVarValue uv
-       case val of
-        UVarEnumerated t -> fullyEnumerated t
-        UVarUnenumerated (Just (Mu _)) _ -> return True
-        _ -> return False
 
 ---------------------
 -------- Full enumeration
@@ -483,23 +505,17 @@ getAllTruncatedTerms n = map (termFragToTruncatedTerm . fst) $
                            enumerateFully
                            getTermFragForUVar (intToUVar 0)
 
-getAllTermsPrune :: (UVar -> Either TermFragment Node -> EnumerateM (Bool, Maybe UVar))
+getAllTermsPrune :: (UVar -> Either TermFragment Node -> EnumerateM Bool)
                  -> Node -> [Term]
 getAllTermsPrune shouldPrune n =
     mapMaybe fst $ flip runEnumerateM (initEnumerationState n) $ do
-                            enumerateFully' True Nothing shouldPrune
-                            uv <- getUVarValue (intToUVar 0)
-                            -- If we pruned the branch it won't have been
-                            -- fully enumerated, so we return nothing.
-
-                            case uv of
-                                UVarEnumerated t -> do fe <- fullyEnumerated t
-                                                       if fe then Just <$> expandTermFrag t
-                                                       else return Nothing
-                                _ -> return Nothing
+                        finished <- enumerateFully' True shouldPrune
+                        if finished
+                        then Just <$> expandUVar (intToUVar 0)
+                        else mzero
 
 getAllTerms :: Node -> [Term]
-getAllTerms = getAllTermsPrune (\ _ _ -> return (False, Nothing))
+getAllTerms = getAllTermsPrune (\ _ _ -> return False)
 
 
 -- | Inefficient enumeration

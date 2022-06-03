@@ -39,7 +39,7 @@ library
 executable synthspec
   import: deps
   hs-source-dirs: exe
-
+  ghc-options: -O2 -threaded -rtsopts
   build-depends: synthspec
   main-is: Main.hs
 
