@@ -70,14 +70,15 @@ data GeneratedInstance = Gend {
     g_li_i :: GeneratedInstance
     }
 
-sigGivens :: Sig -> (Sig, Map TypeSkeleton (Text, Dynamic) , Map TypeSkeleton (Text,Func))
-sigGivens sigs = (--eqDef <>
+sigGivens :: (TypeSkeleton -> TypeSkeleton) -> Sig 
+          -> (Sig, Map TypeSkeleton (Text, Dynamic) , Map TypeSkeleton (Text,Func))
+sigGivens typeMod sigs = (--eqDef <>
                    -- Map.fromList (mapMaybe toEqInst allCons) <>
                    -- Map.fromList (mapMaybe toEmptyLi allCons) <>
                    Map.fromList (mapMaybe consName allCons)
                  , eq_insts
                  , arbs)
-  where trs = map (monomorphiseType . sfTypeRep) $ Map.elems sigs
+  where trs = map (typeMod . sfTypeRep) $ Map.elems sigs
         eq_insts = Map.fromList $ mapMaybe (\c -> ((c,) . fmap sfFunc) <$> toEqInst c)
                                 $ filter isCon allCons
         arbs = Map.fromList $ mapMaybe (\ty -> (ty,)  <$> consName ty) allCons
@@ -140,6 +141,7 @@ sigGivens sigs = (--eqDef <>
 
 
         genRep :: TypeSkeleton -> Maybe GeneratedInstance
+        genRep (TVar a) = genRep (TCons (T.toUpper a) [])
         genRep (TCons "A"        []) = Just $ genRepFromProxy (Proxy :: Proxy A)
         genRep (TCons "B"        []) = Just $ genRepFromProxy (Proxy :: Proxy B)
         genRep (TCons "C"        []) = Just $ genRepFromProxy (Proxy :: Proxy C)
