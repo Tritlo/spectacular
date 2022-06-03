@@ -8,10 +8,11 @@ mini-lists-build:
 	cabal build --enable-profiling --profiling-detail=all-functions --reinstall && cabal exec -- ghc -fprof-auto -prof -O2 -threaded -rtsopts -o minili examples/MiniList.hs -package synthspec-0.0.1
 
 benchmark-build:
-	cabal build --reinstall && \
-	cabal exec -- ghc -O2 -threaded -rtsopts -o li examples/Lists.hs -package synthspec-0.0.1 && \
-	cabal exec -- ghc -O2 -threaded -rtsopts -o hli examples/HugeLists.hs -package synthspec-0.0.1 && \
-	cabal exec -- ghc -O2 -threaded -rtsopts -o oct examples/Octonions.hs -package synthspec-0.0.1 && \
+	cabal build --reinstall
+	cabal exec -- ghc -O2 -threaded -rtsopts -o li examples/Lists.hs -package synthspec-0.0.1
+	cabal exec -- ghc -O2 -threaded -rtsopts -o hli examples/HugeLists.hs -package synthspec-0.0.1
+	cabal exec -- ghc -O2 -threaded -rtsopts -o oct examples/Octonions.hs -package synthspec-0.0.1
+	cabal exec -- ghc -O2 -threaded -rtsopts -o rgx examples/Regex.hs -package synthspec-0.0.1
 	echo "Done"
 
 benchmark:

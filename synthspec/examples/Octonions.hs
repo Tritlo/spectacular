@@ -3,13 +3,13 @@
 import Data.Ratio
 import SynthSpec
 import SynthSpec.Types (genRepFromProxy)
+import Application.TermSearch.Type (TypeSkeleton(..))
 import Test.QuickCheck
 -- import Twee.Pretty
 import Data.Typeable (Typeable)
 import qualified Data.Map as Map
 import Control.Monad
 import Data.Proxy
-import Application.TermSearch.Type (TypeSkeleton(..))
 
 newtype SmallRational = SmallRational Rational
   deriving (Eq, Ord, Num, Typeable, Fractional, Conj, CoArbitrary, Show)
@@ -56,7 +56,7 @@ instance Arbitrary It where
 extraReps (TCons "It" []) = Just $ genRepFromProxy (Proxy :: Proxy It)
 extraReps _ = Nothing
 
-main = synthSpec' 6 3 extraReps [
+main = synthSpec' 9 1 extraReps [
   con "*" ((*) :: It -> It -> It),
   (con "inv" (recip :: It -> It)),
   con "1" (1 :: It)]
