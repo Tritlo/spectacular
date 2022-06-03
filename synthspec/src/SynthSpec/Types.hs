@@ -435,7 +435,7 @@ unifyAllVars sig (Term s args) = Term s $ map (unifyAllVars sig) args
 toTemplate :: Sig -> Term -> Term
 toTemplate sig (Term (Symbol s) ty) |
     Just (GivenFun {given_info=(GivenVar _ i _) }) <- sig Map.!? s = 
-         Term (Symbol $ "<v"<>(T.pack $ show i)<> ">") ty
+         Term (Symbol $ "<v>") ty
 toTemplate sig (Term s args) = Term s $ map (toTemplate sig) args
  
 -- When we generalize types, the types of the functions don't match, but

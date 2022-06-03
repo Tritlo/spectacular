@@ -31,16 +31,18 @@ import Application.TermSearch.Type
 import Application.TermSearch.TermSearch hiding (allConstructors, generalize)
 import Data.ECTA
 import Data.ECTA.Term
-import Data.ECTA.Internal.ECTA.Operations (nodeRepresents)
+import Data.ECTA.Internal.ECTA.Operations ( nodeRepresents,
+                                            nodeRepresentsTemplate,
+                                            edgeRepresentsTemplate)
 import Data.ECTA.Internal.ECTA.Enumeration
     (expandPartialTermFrag, getUVarValue, UVarValue(..), TermFragment(..),
      getUVarRepresentative, getPruneDeps, addPruneDep, deletePruneDep,
      fragRepresents, EnumerationState, runEnumerateM, enumPrune,
-     initEnumerationState)
+     initEnumerationState, mergeNodeIntoUVarVal)
 import Data.Persistent.UnionFind ( uvarToInt, intToUVar, UVar )
 import Data.List hiding (union)
 import qualified Test.QuickCheck as QC
-import Control.Monad (zipWithM_, filterM, when)
+import Control.Monad (zipWithM_, filterM, when, mzero)
 import qualified Data.Text as T
 import qualified Data.Set as Set
 import qualified System.Environment as Env
@@ -313,10 +315,17 @@ shouldPrune (templs,rws) uv (Left tf) = do
             Just rw' -> do deletePruneDep (uvarToInt uv)
                            {-# SCC "resume" #-} fragRepresents tf rw'
             _ -> return False
-shouldPrune (templs,rws) _ (Right n) =
-    let cf n = M.Any (any (nodeRepresents n) $ templs)
-    in return $ M.getAny (crush (onNormalNodes cf) n)
-
+-- TODO: this is too strong, it just throws everything away even if
+-- we wouldn't encounter that one.
+shouldPrune (templs,rws) uv (Right n) = do
+    return (any (nodeRepresentsTemplate n) (templs ++ rws))
+    -- let rmIfRep n | any (nodeRepresentsTemplate n) (templs ++ rws) = EmptyNode
+    --     rmIfRep n = n
+    --     newNode = mapNodes rmIfRep n
+    -- mergeNodeIntoUVarVal uv newNode mempty
+    -- return False
+    -- let cf n = M.Any (any (nodeRepresents n) $ templs)
+    -- in return $ M.getAny (crush (onNormalNodes cf) n)
 hasTemplate :: Term -> Bool
 hasTemplate (Term (Symbol s) args) = T.isPrefixOf "<v" s || any hasTemplate args
 

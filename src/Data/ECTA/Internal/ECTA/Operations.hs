@@ -30,6 +30,10 @@ module Data.ECTA.Internal.ECTA.Operations (
   , nodeRepresents
   , edgeRepresents
 
+  -- * Membership of templates
+  , nodeRepresentsTemplate
+  , edgeRepresentsTemplate
+
   -- * Intersection
   , intersect
   , dropRedundantEdges
@@ -61,7 +65,6 @@ import           Data.Map.Strict ( Map )
 import qualified Data.Map.Strict as Map
 import           Data.Set ( Set )
 import qualified Data.Set as Set
-
 import Control.Lens ( (&), ix, (^?), (%~) )
 import Data.List.Index ( imap )
 
@@ -75,6 +78,7 @@ import Data.Interned.Extended.HashTableBased ( Id )
 -- import Data.Interned ( Interned(..), unintern, Id, Cache, mkCache )
 -- import Data.Interned.Extended.SingleThreaded ( intern )
 
+import qualified Data.Text as T
 import Data.Memoization ( MemoCacheTag(..), memo, memo2 )
 import Utility.Fixpoint
 import Utility.HashJoin
@@ -207,6 +211,32 @@ edgeRepresents :: Edge -> Term -> Bool
 edgeRepresents e = \t@(Term s ts) -> s == edgeSymbol e
                                   && and (zipWith nodeRepresents (edgeChildren e) ts)
                                   && all (eclassSatisfied t) (unsafeGetEclasses $ edgeEcs e)
+  where
+    eclassSatisfied :: Term -> PathEClass -> Bool
+    eclassSatisfied t pec = allTheSame $ map (\p -> getPath p t) $ unPathEClass pec
+
+    allTheSame :: (Eq a) => [a] -> Bool
+    allTheSame =
+        \case
+          []   -> True
+          x:xs -> go x xs
+      where
+        go !_ []      = True
+        go !x (!y:ys) = (x == y) && (go x ys)
+    {-# INLINE allTheSame #-}
+
+nodeRepresentsTemplate :: Node -> Term -> Bool
+nodeRepresentsTemplate EmptyNode _    = False
+nodeRepresentsTemplate (Node es) t    = any (\e -> edgeRepresentsTemplate e t) es
+nodeRepresentsTemplate n@(Mu _)  t    = nodeRepresentsTemplate (unfoldOuterRec n) t
+nodeRepresentsTemplate _         _    = False
+
+edgeRepresentsTemplate :: Edge -> Term -> Bool
+edgeRepresentsTemplate e = \t@(Term s@(Symbol txt) ts) ->
+     let childrenSatisfied = and (zipWith nodeRepresentsTemplate (edgeChildren e) ts)
+         consSatisfied = all (eclassSatisfied t) (unsafeGetEclasses $ edgeEcs e)
+      in   (s == edgeSymbol e && childrenSatisfied && consSatisfied)
+        || (txt == "<v>"      && childrenSatisfied && consSatisfied)
   where
     eclassSatisfied :: Term -> PathEClass -> Bool
     eclassSatisfied t pec = allTheSame $ map (\p -> getPath p t) $ unPathEClass pec
