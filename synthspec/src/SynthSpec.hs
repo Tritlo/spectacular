@@ -56,6 +56,7 @@ import qualified Data.IntSet as IntSet
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IM
 import Data.Hashable (hash, Hashable)
+import qualified Data.HashSet as HS
 import qualified Data.List as L
 import Data.Function (on)
 import GHC.TopHandler
@@ -334,10 +335,11 @@ fragRepresents (TermFragmentUVar uv) rwrs =
            _ -> const False <$> addPruneDep (uvarToInt uv) rwrs
 
 
+type TermSet = HS.HashSet Term
 
 data GoState = GoState {seen :: !IntSet, --hashed integers
                         rwrts :: Rewrite,
-                        unique_terms :: !(Map Term [Term]),
+                        unique_terms :: !(Map Term TermSet),
                         stecta :: StEcta,
                         so_far :: !Int,
                         lvl_nums :: ![Int],
@@ -458,7 +460,7 @@ synthSpec sigs =
            go' (GoState{ lvl_nums = [],
                         current_terms = [] , ..}) = do
              putStrLn $ "Done! " ++ show so_far ++ " terms examined."
-             putStrLn $ show (sum $ map (length) $ Map.elems unique_terms) ++ " unique terms discovered."
+             putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
             --  when (not (null (rwrMap rwrts))) $ do
             --    putStrLn "Final rewrites:"
             --    putStrLn "---------------"
@@ -526,13 +528,13 @@ synthSpec sigs =
              | Term "filter" [current_ty,_] <- full_term,
                not (current_ty `Map.member` unique_terms) =
                 go' (GoState{current_terms = terms,
-                            unique_terms = Map.insert current_ty [np_term] unique_terms,
+                            unique_terms = Map.insert current_ty (HS.singleton np_term) unique_terms,
                             ..})
              | (hash np_term) `IntSet.member` seen = skip seen
              | hasSmallerRewrite rwrts' np_term = skip (IntSet.insert (hash np_term) seen)
              | hasAnySub rwrts' np_term = skip (IntSet.insert (hash np_term) seen)
              | otherwise = do
-                let other_terms = unique_terms Map.! current_ty
+                let other_terms = HS.toList $ unique_terms Map.! current_ty
                     terms_to_test = map termToTest other_terms
                      -- No need to run multiple tests if there are no variables!
                     runTest eq_inst sig t =
@@ -542,6 +544,7 @@ synthSpec sigs =
                             qc_args' = qc_args {QC.maxSuccess = nvs}
                         in collectStats $ QC.isSuccess <$>
                                            (QC.quickCheckWithResult qc_args' $
+                                           -- (QC.verboseCheckWithResult qc_args' $
                                               dynProp $ termToGen eq_inst sig Map.empty t)
                     testAll :: Dynamic -> Sig -> [Term] -> IO (Maybe Term)
                     testAll eq_inst sig [] = return Nothing
@@ -606,11 +609,12 @@ synthSpec sigs =
                                   go' GoState { so_far = sf',
                                                 current_terms = terms,
                                                 unique_terms =
-                                                  Map.adjust (wip_rewritten:) current_ty unique_terms,
+                                                  Map.adjust (HS.insert wip_rewritten) current_ty unique_terms,
                                                 rwrts = rwrts',..}
 
                     -- These tests are expensive, so we only do them for laws that hold.
                     Just t -> do
+                        -- putStrLn ("\r" ++ (ppNpTerm $ npTerm' t) ++  " ")
                         let (gsig, glaws) =
                               -- We have to be a bit careful about the order
                               -- of the generalized laws, because we test
@@ -720,7 +724,7 @@ refreshCount pre mid post size i = putStr (o ++ fill ++ "\r") >> flushStdHandles
             ++ pre ++ " terms of size " ++ show size
              ++ mid
             ++ ", " ++ show i ++ " examined so far. "
-        o = if length (o' ++ post) <= 120 then o' ++ post
+        o = if length (o' ++ post) <= 120 then o' ++ post 
             else (take 117 (o' ++ post)) ++ "..."
         fill = replicate (max 0 (length o - 120)) ' '
 
