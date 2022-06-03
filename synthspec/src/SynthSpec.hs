@@ -129,7 +129,7 @@ generalizedTerm _ t = [t] -- shouldn't happend
 -- also hold whenever xs == ys. So it suffices to explore laws where we have
 -- only a single generator in scope and then generalizing them.
 generalizeLaw :: Sig -> Term -> (Sig, [Term])
-generalizeLaw sig t@(Term "(==)" [ty,lhs,rhs]) = 
+generalizeLaw sig t@(Term "(==)" [ty,lhs,rhs]) =
     let (lhsig, lhss) = generalizedLaw' sig lhs
         (rhsig, rhss) = generalizedLaw' lhsig rhs
         varIds = Map.elems . termVarIds rhsig -- we can't simplify more,
@@ -299,7 +299,7 @@ shouldPrune :: ([Term],[Term])
             -> Either TermFragment Node
             -> EnumerateM Bool
 shouldPrune (templs,rws) uv (Left tf) = do
-    deps <- getPruneDeps 
+    deps <- getPruneDeps
     -- traceShowM (uv, tf)
     -- traceShowM deps
     -- tv <- getUVarValue (intToUVar 0)
@@ -307,7 +307,7 @@ shouldPrune (templs,rws) uv (Left tf) = do
     --     UVarEnumerated t -> expandPartialTermFrag t >>= traceShowM
     --     _ -> return ()
     if IM.null deps
-    then if (uv == intToUVar 0)  
+    then if (uv == intToUVar 0)
          then {-# SCC "fresh-start" #-} fragRepresents tf (rws ++ templs)
          else return False -- a type is being selected.
     else case deps IM.!? (uvarToInt uv) of
@@ -371,9 +371,12 @@ synthSpec sigs =
                    givens = Map.assocs $ (givenTrans . sfTypeRep) <$> givenSig
                    compl_sig = sig <> givenSig
                    sc = skels ++ givens
-                   ag = Node $ map (\(s,t) -> Edge s [t]) $ 
-                        (if phase >= 4 then gnodes else ngnodes) givens 
-                        ++ gnodes skels
+                   ag = Node $ map (\(s,t) -> Edge s [t]) $
+                        -- we generalize the functions in the signature but not
+                        -- This means we don't select givens as candidates
+                        -- for application which is what we want, we don't
+                        -- want to apply variables to each other.
+                        ngnodes givens ++ gnodes skels
                    addSyms st tt = map (Bi.bimap (Symbol . st) (tt . typeToFta))
                    ngnodes = addSyms id id
                    gnodes = addSyms id (generalize sc)
@@ -413,7 +416,7 @@ synthSpec sigs =
                     mapp (union $ mtk comps anyArg False i)
                          (union $ mtk comps anyArg True (k-i))
 
-        
+
 
        putStrLn "Laws according to Haskell's (==):"
        putStrLn "---------------------------------"
@@ -439,11 +442,11 @@ synthSpec sigs =
                                   current_terms = [],
                                   ty_cons_to_check = sig_ty_cons
                                   }
-             where 
+             where
                go' :: GoState -> IO ()
                go' (GoState{ lvl_nums = [],
                              phase_number = pn@(1),
-                            current_terms = [] , ..}) = do 
+                            current_terms = [] , ..}) = do
                     putStrLn $ "Fully monomorphic phase finished.." ++ show so_far ++ " terms examined."
                     putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
                     when (pn < phase) $ do
@@ -456,7 +459,7 @@ synthSpec sigs =
                                     current_terms=[],..}
                go' (GoState{ lvl_nums = [],
                              phase_number = pn@(2),
-                            current_terms = [] , ..}) = do 
+                            current_terms = [] , ..}) = do
                     putStrLn $ "Monomorphic phases finished.." ++ show so_far ++ " terms examined."
                     putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
                     when (pn < phase) $ do
@@ -496,7 +499,7 @@ synthSpec sigs =
 
                 refreshCount "Folding ECTA" "" "" cur_lvl so_far
                 let toText e = T.pack $ ppNpTerm $ npTerm e
-                    nextNode = union $ mtk scope_comps any_arg True cur_lvl
+                    nextNode = union $ mtk scope_comps any_arg False cur_lvl
 
                 filtered_and_reduced <- fmap refold <$> collectStats $
                     (return $ reduceFully $ (filterType nextNode $ typeToFta tc))
@@ -647,7 +650,7 @@ synthSpec sigs =
                         -- wrt variable renaming
                         np_term = npTerm' full_term
                         Term "filter" [current_ty,_] = full_term
-                         
+
                         term_eq_insts = Map.fromList $ map (Bi.first typeSkeletonToTerm)
                                                      $ Map.assocs eq_insts
                         (eq_txt, eq_inst) = term_eq_insts Map.! current_ty
@@ -710,7 +713,7 @@ refreshCount pre mid post size i = putStr (o ++ fill ++ "\r") >> flushStdHandles
             ++ pre ++ " terms of size " ++ show size
              ++ mid
             ++ ", " ++ show i ++ " examined so far. "
-        o = if length (o' ++ post) <= 120 then o' ++ post 
+        o = if length (o' ++ post) <= 120 then o' ++ post
             else (take 117 (o' ++ post)) ++ "..."
         fill = replicate (max 0 (length o - 120)) ' '
 

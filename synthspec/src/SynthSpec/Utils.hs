@@ -242,7 +242,8 @@ generalize comps n@(Node [_]) = Node
   [mkEdge s ns' (mkEqConstraints $ map pathsForVar vars)]
  where
   vars                = globalTyVars
-  nWithVarsRemoved    = mapNodes (\x -> if x `elem` vars then mtau comps else x) n
+  nWithVarsRemoved    = mapNodes (\x -> if x `elem` vars
+                                        then mtau comps else x) n
   (Node [Edge s ns']) = nWithVarsRemoved
 
   pathsForVar :: Node -> [Path]
