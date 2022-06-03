@@ -16,6 +16,9 @@ run-prof:
 big-prof: 
 	/usr/bin/time -v ./lus +RTS -p -RTS 6 && profiteur lus.prof
 
+v-big-prof: 
+	/usr/bin/time -v ./lus +RTS -p -RTS 7 && profiteur lus.prof
+
 big-par: 
 	/usr/bin/time -v ./lus +RTS -N4 -RTS 6
 

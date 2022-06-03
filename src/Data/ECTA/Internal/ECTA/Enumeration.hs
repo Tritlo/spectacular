@@ -335,9 +335,7 @@ enumerateEdge' eager_suspend scs e = do
 
   newScs <- Sequence.fromList <$> mapM pecToSuspendedConstraint (unsafeGetEclasses $ edgeEcs e)
   let scs' = scs <> newScs
-  if eager_suspend && length (edgeChildren e) > 1
-  then TermFragmentNode (edgeSymbol e) <$> imapM (\i n -> suspendNode (descendScs i scs') n) (edgeChildren e)
-  else TermFragmentNode (edgeSymbol e) <$> imapM (\i n -> enumerateNode' eager_suspend (descendScs i scs') n) (edgeChildren e)
+  TermFragmentNode (edgeSymbol e) <$> imapM (\i n -> enumerateNode' eager_suspend (descendScs i scs') n) (edgeChildren e)
                                
 
 
