@@ -24,7 +24,8 @@ common deps
                  time,
                  QuickCheck,
                  async,
-                 hashable
+                 hashable,
+                 unordered-containers
 
 
 library
