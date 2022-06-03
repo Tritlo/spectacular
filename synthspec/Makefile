@@ -13,6 +13,7 @@ benchmark-build:
 	cabal exec -- ghc -O2 -threaded -rtsopts -o hli examples/HugeLists.hs -package synthspec-0.0.1
 	cabal exec -- ghc -O2 -threaded -rtsopts -o oct examples/Octonions.hs -package synthspec-0.0.1
 	cabal exec -- ghc -O2 -threaded -rtsopts -o rgx examples/Regex.hs -package synthspec-0.0.1
+	cabal exec -- ghc -O2 -threaded -rtsopts -o lmon examples/ListMonad.hs -package synthspec-0.0.1
 	echo "Done"
 
 benchmark:
