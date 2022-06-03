@@ -297,7 +297,7 @@ shouldPrune :: ([Term],[Term])
             -> UVar
             -> Either TermFragment Node
             -> EnumerateM Bool
-shouldPrune (_,rws) uv (Left tf) = do
+shouldPrune (templs,rws) uv (Left tf) = do
     deps <- getPruneDeps 
     -- traceShowM (uv, tf)
     -- traceShowM deps
@@ -307,14 +307,14 @@ shouldPrune (_,rws) uv (Left tf) = do
     --     _ -> return ()
     if IM.null deps
     then if (uv == intToUVar 0)  
-         then {-# SCC "fresh-start" #-} fragRepresents tf rws
+         then {-# SCC "fresh-start" #-} fragRepresents tf (rws ++ templs)
          else return False -- a type is being selected.
     else case deps IM.!? (uvarToInt uv) of
             Just rw' -> do deletePruneDep (uvarToInt uv)
                            {-# SCC "resume" #-} fragRepresents tf rw'
             _ -> return False
-shouldPrune (templs,_) _ (Right n) =
-    let cf n = M.Any (any (nodeRepresents n) templs)
+shouldPrune (templs,rws) _ (Right n) =
+    let cf n = M.Any (any (nodeRepresents n) $ templs)
     in return $ M.getAny (crush (onNormalNodes cf) n)
 
 hasTemplate :: Term -> Bool
@@ -383,25 +383,21 @@ synthSpec sigs =
                     mapp (union $ mtk comps anyArg False i)
                          (union $ mtk comps anyArg True (k-i))
 
-
-
-       -- print $ (Dyn.dynTypeRep . sfFunc) <$> sig
-       let givens = Map.assocs $ sfTypeRep <$> givenSig
-           skels = (generalizeType . sfTypeRep) <$> sig
-           scope_comps = (Map.assocs skels) ++ givens
+       let givens = Map.assocs $ (sfTypeRep) <$> givenSig
+           skels =  Map.assocs $ (generalizeType . monomorphiseType . sfTypeRep) <$> sig
+           scope_comps = skels ++ givens
            addSyms st tt = map (Bi.bimap (Symbol . st) (tt . typeToFta))
-           -- ngnodes = addSyms id id
+           ngnodes = addSyms id id
            gnodes = addSyms id (generalize scope_comps)
-           anyArg = Node $ map (\(s,t) -> Edge s [t]) $
-                        (gnodes givens) ++ gnodes (Map.assocs skels)
-           scope_terms = getAllTerms $ refold $ reduceFully
-                                     $ union $ mtk scope_comps anyArg False 1
-           scope_term_ty sig (Term (Symbol s) _) = sfTypeRep (sig Map.! s)
+           anyArg = Node $ map (\(s,t) -> Edge s [t]) $ ngnodes givens ++ gnodes skels
+           -- scope_terms = getAllTerms $ refold $ reduceFully
+           --                           $ union $ mtk scope_comps anyArg False 1
+           -- scope_term_ty sig (Term (Symbol s) _) = sfTypeRep (sig Map.! s)
 
-           scope_terms_w_ty :: [(TypeSkeleton, Term)]
-           scope_terms_w_ty = map (\t -> (scope_term_ty complSig t, npTerm' t)) scope_terms
-           scope_uniques = Map.unionsWith (++) $ map (\(tsk,t) -> Map.singleton tsk [t])
-                                                 scope_terms_w_ty
+           -- scope_terms_w_ty :: [(TypeSkeleton, Term)]
+           -- scope_terms_w_ty = map (\t -> (scope_term_ty complSig t, npTerm' t)) scope_terms
+           -- scope_uniques = Map.unionsWith (++) $ map (\(tsk,t) -> Map.singleton tsk [t])
+                                                 -- scope_terms_w_ty
 
 
 
@@ -617,7 +613,6 @@ synthSpec sigs =
               where skip seen = do go' GoState{so_far = so_far+1,
                                                 current_terms = terms, ..}
                     -- wrt variable renaming
-                    canon_np = canonicalize complSig np_term
                     np_term = npTerm' full_term
                     Term "filter" [current_ty,_] = full_term
                     (eq_txt, eq_inst) = term_eq_insts Map.! current_ty

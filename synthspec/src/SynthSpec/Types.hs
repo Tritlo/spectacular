@@ -77,7 +77,7 @@ sigGivens sigs = (--eqDef <>
                    Map.fromList (mapMaybe consName allCons)
                  , eq_insts
                  , arbs)
-  where trs = map sfTypeRep $ Map.elems sigs
+  where trs = map (monomorphiseType . sfTypeRep) $ Map.elems sigs
         eq_insts = Map.fromList $ mapMaybe (\c -> ((c,) . fmap sfFunc) <$> toEqInst c)
                                 $ filter isCon allCons
         arbs = Map.fromList $ mapMaybe (\ty -> (ty,)  <$> consName ty) allCons
@@ -162,6 +162,7 @@ sigGivens sigs = (--eqDef <>
         genRep (TFun _ _) = Nothing
         -- Some special cases for HugeLists
         genRep (TCons "(,)" [TCons "A" [], TCons "B" []]) = Just $ genRepFromProxy (Proxy :: Proxy (A,B))
+        genRep (TCons "(,)" [TCons "A" [], TCons "A" []]) = Just $ genRepFromProxy (Proxy :: Proxy (A,A))
         genRep (TCons "(,)" [TCons "[]" [TCons "A" []], TCons "[]" [TCons "B" []]])
             = Just $ genRepFromProxy (Proxy :: Proxy ([A],[B]))
         genRep (TCons "(,)" [TCons "[]" [TCons "A" []], TCons "[]" [TCons "A" []]])
@@ -411,6 +412,13 @@ generalizeType (TCons s []) | s `elem` ["A","B","C","D","Acc"]
 generalizeType (TCons s r) = TCons s $ map generalizeType r
 generalizeType (TFun arg ret) = TFun (generalizeType arg) (generalizeType ret)
 generalizeType tsk = tsk
+
+
+monomorphiseType :: TypeSkeleton -> TypeSkeleton
+monomorphiseType (TCons s []) | s `elem` ["A","B","C","D","Acc"] = TCons "A" []
+monomorphiseType (TCons s r) = TCons s $ map monomorphiseType r
+monomorphiseType (TFun arg ret) = TFun (monomorphiseType arg) (monomorphiseType ret)
+monomorphiseType tsk = tsk
 
 dropNpTypes :: Term -> Term
 dropNpTypes (Term "app" [_,f,v]) = Term "app" [dropNpTypes f,dropNpTypes v]

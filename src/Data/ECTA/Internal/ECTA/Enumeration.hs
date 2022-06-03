@@ -51,6 +51,7 @@ module Data.ECTA.Internal.ECTA.Enumeration (
   , naiveDenotationBounded
   ) where
 
+import qualified Data.Text as T
 import Control.Monad ( forM_, guard, unless )
 import Control.Monad.State.Strict ( StateT(..) )
 import qualified Data.IntMap as IntMap
@@ -404,8 +405,11 @@ fragRepresents (TermFragmentNode "app" [_,_,f,v]) rwrs =
 fragRepresents (TermFragmentNode s [_]) rwrs =
     fragRepresents (TermFragmentNode s []) rwrs
 
-fragRepresents (TermFragmentNode s ts) rwrs = do
-    matches <- checkSelf $ map snd $ filter ((== s) . fst) (map unTerm rwrs)
+fragRepresents (TermFragmentNode s@(Symbol sym) ts) rwrs = do
+    matches <- checkSelf $ map snd $
+                 filter ((\sym@(Symbol v) ->
+                          sym == s || "<v" `T.isPrefixOf` v) . fst)
+                        (map unTerm rwrs)
      
     if matches then return True
     else checkChildren ts
@@ -439,9 +443,12 @@ fragRepresents (TermFragmentUVar uv) rwrs =
     do val <- getUVarValue uv
        case val of
            UVarEnumerated t -> fragRepresents t rwrs
-           _ -> const False <$> addPruneDep (uvarToInt uv) rwrs
+           _ -> if anyIsTemplate rwrs
+                then return True
+                else const False <$> addPruneDep (uvarToInt uv) rwrs
 
-
+anyIsTemplate :: [Term] -> Bool
+anyIsTemplate = any (\(Term (Symbol s) _) -> T.isPrefixOf "<v" s)
 
 enumerateOutUVar' :: Bool -> UVar -> EnumerateM TermFragment
 enumerateOutUVar' eager_suspend uv =
