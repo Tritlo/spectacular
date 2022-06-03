@@ -31,6 +31,7 @@ module Data.ECTA.Internal.ECTA.Enumeration (
   , getPruneDep
   , addPruneDep
   , deletePruneDep
+  , fragRepresents
 
   , enumerateNode
   , enumerateEdge
@@ -45,6 +46,7 @@ module Data.ECTA.Internal.ECTA.Enumeration (
   , getAllTruncatedTerms
   , getAllTerms
   , getAllTermsPrune
+  , enumPrune
   , naiveDenotation
   , naiveDenotationBounded
   ) where
@@ -196,7 +198,6 @@ changePruneDep src trg = do pd <- getPruneDep src
                             case pd of
                               Just ts -> deletePruneDep src >> addPruneDep trg ts
                               _ -> return ()
-                                         
 
 ---------------------
 -------- UVar accessors
@@ -256,7 +257,6 @@ assimilateUvarVal uvTarg uvSrc
       guard (contents v /= Just EmptyNode)
       uvarValues.(ix $ uvarToInt uvTarg) .= v
       uvarValues.(ix $ uvarToInt uvSrc)  .= UVarEliminated
-      changePruneDep (uvarToInt uvSrc) (uvarToInt uvTarg)
 
 
 mergeNodeIntoUVarVal :: UVar -> Node -> Seq SuspendedConstraint -> EnumerateM ()
@@ -396,6 +396,53 @@ lastExpandableUVar = do
                 Just (i, _) -> return $ ExpansionNext $ intToUVar i
 
 
+
+fragRepresents :: TermFragment -> [Term] -> EnumerateM Bool
+fragRepresents (TermFragmentNode "filter" [_,t]) rwrs = fragRepresents t rwrs
+fragRepresents (TermFragmentNode "app" [_,_,f,v]) rwrs =
+    fragRepresents (TermFragmentNode "app" [f,v]) rwrs
+fragRepresents (TermFragmentNode s [_]) rwrs =
+    fragRepresents (TermFragmentNode s []) rwrs
+
+fragRepresents (TermFragmentNode s ts) rwrs = do
+    matches <- checkSelf $ map snd $ filter ((== s) . fst) (map unTerm rwrs)
+     
+    if matches then return True
+    else checkChildren ts
+    where unTerm (Term "filter" [_,t]) = unTerm t
+          unTerm (Term "app" [_, _, f,v]) = ("app", [f,v])
+          unTerm (Term s [_]) = (s, [])
+
+          checkSelf :: [[Term]] -> EnumerateM Bool
+          checkSelf [] = return False
+          checkSelf (subrw:subrws) = 
+            do res <- checkAll toCheck
+               if not res then return False
+               else checkSelf subrws
+            where toCheck = zipWith (\ t srw -> (t,[srw])) ts subrw
+                  checkAll :: [(TermFragment, [Term])] 
+                           -> EnumerateM Bool
+                  checkAll [] = return True
+                  checkAll ((t,rw):rws) = do
+                    res <- fragRepresents t rw
+                    if not res then return False
+                    else checkAll rws
+            
+          checkChildren :: [TermFragment] -> EnumerateM Bool
+          checkChildren [] = return False
+          checkChildren (tf:tfs) =
+            do res <- fragRepresents tf rwrs
+               if res then return True
+               else checkChildren tfs
+
+fragRepresents (TermFragmentUVar uv) rwrs =
+    do val <- getUVarValue uv
+       case val of
+           UVarEnumerated t -> fragRepresents t rwrs
+           _ -> const False <$> addPruneDep (uvarToInt uv) rwrs
+
+
+
 enumerateOutUVar' :: Bool -> UVar -> EnumerateM TermFragment
 enumerateOutUVar' eager_suspend uv =
     do UVarUnenumerated (Just n) scs <- getUVarValue uv
@@ -407,8 +454,13 @@ enumerateOutUVar' eager_suspend uv =
 
 
        uvarValues.(ix $ uvarToInt uv') .= UVarEnumerated t
-       refreshReferencedUVars
-       return t
+       pd <- getPruneDep (uvarToInt uv)
+       case pd of
+          Just rws -> do deletePruneDep (uvarToInt uv)
+                         res <- fragRepresents t rws
+                         if res then mzero
+                         else return t
+          _ -> refreshReferencedUVars >> return t
 
 enumerateOutUVar :: UVar -> EnumerateM TermFragment
 enumerateOutUVar = enumerateOutUVar' False
@@ -506,11 +558,11 @@ getAllTruncatedTerms n = map (termFragToTruncatedTerm . fst) $
 getAllTermsPrune :: (UVar -> Either TermFragment Node -> EnumerateM Bool)
                  -> Node -> [Term]
 getAllTermsPrune shouldPrune n =
-    mapMaybe fst $ flip runEnumerateM (initEnumerationState n) $ do
-                        finished <- enumerateFully' True shouldPrune
-                        if finished
-                        then Just <$> expandUVar (intToUVar 0)
-                        else mzero
+    map fst $ flip runEnumerateM (initEnumerationState n) $ enumPrune shouldPrune
+
+enumPrune :: (UVar -> Either TermFragment Node -> EnumerateM Bool) -> EnumerateM Term
+enumPrune shouldPrune = do finished <- enumerateFully' True shouldPrune
+                           if finished then expandUVar (intToUVar 0) else mzero
 
 getAllTerms :: Node -> [Term]
 getAllTerms = getAllTermsPrune (\ _ _ -> return False)

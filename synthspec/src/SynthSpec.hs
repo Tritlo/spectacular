@@ -21,6 +21,7 @@ import qualified Data.Bifunctor as Bi
 import MonadUtils (concatMapM)
 import SynthSpec.Types
 import SynthSpec.Utils
+import SynthSpec.Testing
 import qualified SynthSpec.Utils as SS
 import Data.Proxy (Proxy(..))
 
@@ -33,7 +34,9 @@ import Data.ECTA.Term
 import Data.ECTA.Internal.ECTA.Operations (nodeRepresents)
 import Data.ECTA.Internal.ECTA.Enumeration
     (expandPartialTermFrag, getUVarValue, UVarValue(..), TermFragment(..),
-     getUVarRepresentative, getPruneDeps, addPruneDep, deletePruneDep)
+     getUVarRepresentative, getPruneDeps, addPruneDep, deletePruneDep,
+     fragRepresents, EnumerationState, runEnumerateM, enumPrune,
+     initEnumerationState)
 import Data.Persistent.UnionFind ( uvarToInt, intToUVar, UVar )
 import Data.List hiding (union)
 import qualified Test.QuickCheck as QC
@@ -290,49 +293,32 @@ termSize (Term s args) = 1 + sum (map termSize args)
 
 
 -- TODO: we're maybe calling getUVarValue too often here.
-fragRepresents :: TermFragment -> [Term] -> EnumerateM Bool
-fragRepresents (TermFragmentNode "filter" [_,t]) rwrs = fragRepresents t rwrs
-fragRepresents (TermFragmentNode "app" [_,_,f,v]) rwrs =
-    fragRepresents (TermFragmentNode "app" [f,v]) rwrs
-fragRepresents (TermFragmentNode s [_]) rwrs =
-    fragRepresents (TermFragmentNode s []) rwrs
+shouldPrune :: ([Term],[Term])
+            -> UVar
+            -> Either TermFragment Node
+            -> EnumerateM Bool
+shouldPrune (_,rws) uv (Left tf) = do
+    deps <- getPruneDeps 
+    -- traceShowM (uv, tf)
+    -- traceShowM deps
+    -- tv <- getUVarValue (intToUVar 0)
+    -- case tv of
+    --     UVarEnumerated t -> expandPartialTermFrag t >>= traceShowM
+    --     _ -> return ()
+    if IM.null deps
+    then if (uv == intToUVar 0)  
+         then {-# SCC "fresh-start" #-} fragRepresents tf rws
+         else return False -- a type is being selected.
+    else case deps IM.!? (uvarToInt uv) of
+            Just rw' -> do deletePruneDep (uvarToInt uv)
+                           {-# SCC "resume" #-} fragRepresents tf rw'
+            _ -> return False
+shouldPrune (templs,_) _ (Right n) =
+    let cf n = M.Any (any (nodeRepresents n) templs)
+    in return $ M.getAny (crush (onNormalNodes cf) n)
 
-fragRepresents (TermFragmentNode s ts) rwrs = do
-    matches <- checkSelf $ map snd $ filter ((== s) . fst) (map unTerm rwrs)
-     
-    if matches then return True
-    else checkChildren ts
-    where unTerm (Term "filter" [_,t]) = unTerm t
-          unTerm (Term "app" [_, _, f,v]) = ("app", [f,v])
-          unTerm (Term s [_]) = (s, [])
-
-          checkSelf :: [[Term]] -> EnumerateM Bool
-          checkSelf [] = return False
-          checkSelf (subrw:subrws) = 
-            do res <- checkAll toCheck
-               if not res then return False
-               else checkSelf subrws
-            where toCheck = zipWith (\ t srw -> (t,[srw])) ts subrw
-                  checkAll :: [(TermFragment, [Term])] 
-                           -> EnumerateM Bool
-                  checkAll [] = return True
-                  checkAll ((t,rw):rws) = do
-                    res <- fragRepresents t rw
-                    if not res then return False
-                    else checkAll rws
-            
-          checkChildren :: [TermFragment] -> EnumerateM Bool
-          checkChildren [] = return False
-          checkChildren (tf:tfs) =
-            do res <- fragRepresents tf rwrs
-               if res then return True
-               else checkChildren tfs
-
-fragRepresents (TermFragmentUVar uv) rwrs =
-    do val <- getUVarValue uv
-       case val of
-           UVarEnumerated t -> fragRepresents t rwrs
-           _ -> const False <$> addPruneDep (uvarToInt uv) rwrs
+hasTemplate :: Term -> Bool
+hasTemplate (Term (Symbol s) args) = T.isPrefixOf "<v" s || any hasTemplate args
 
 
 type TermSet = HS.HashSet Term
@@ -440,7 +426,7 @@ synthSpec sigs =
        putStrLn "---------------------------------"
        let qc_args = QC.stdArgs { QC.chatty = False,
                                   QC.maxShrinks = 0,
-                                  QC.maxSuccess = 1000}
+                                  QC.maxSuccess = 100}
 
            -- TODO: add e-graphs and rewrites.
            go :: Int -> IO ()
@@ -489,40 +475,13 @@ synthSpec sigs =
                 (return $ reduceFully $ union (map (filterType nextNode . typeToFta) sig_ty_cons))
 
 
-            -- putStrLn "rw-terms"
-            -- putStrLn "--------"
-            -- mapM_ (print ) rewrite_terms
-            -- putStrLn "--------"
-            --
 
-            let shouldPrune :: UVar
-                            -> Either TermFragment Node
-                            -> EnumerateM Bool
-                shouldPrune uv (Left tf) = do
-                    deps <- getPruneDeps 
-                    -- traceShowM (uv, tf)
-                    -- traceShowM deps
-                    -- tv <- getUVarValue (intToUVar 0)
-                    -- case tv of
-                    --     UVarEnumerated t -> expandPartialTermFrag t >>= traceShowM
-                    --     _ -> return ()
-                    if IM.null deps
-                    then if (uv == intToUVar 0)  
-                         then {-# SCC "fresh-start" #-} fragRepresents tf rws
-                         else return False -- a type is being selected.
-                    else case deps IM.!? (uvarToInt uv) of
-                            Just rw' -> do deletePruneDep (uvarToInt uv)
-                                           {-# SCC "resume" #-} fragRepresents tf rw'
-                            _ -> return False
-                shouldPrune _ (Right n) =
-                    return $ M.getAny (crush (onNormalNodes cf) n)
-                cf n = M.Any (any (nodeRepresents n) templs)
-                (templs, rws) = partition hasTemplate rewrite_terms
-                hasTemplate (Term (Symbol s) args) = T.isPrefixOf "<v" s || any hasTemplate args
-                terms = getAllTermsPrune shouldPrune $ filtered_and_reduced
+            let terms = getAllTermsPrune
+                          (shouldPrune $ partition hasTemplate rewrite_terms)
+                          filtered_and_reduced
 
-            go' GoState{current_terms = terms,
-                        cur_lvl = lvl_num, ..}
+            go' GoState{ cur_lvl = lvl_num,
+                         current_terms=terms,..}
            go' GoState{law_nums = law_nums@(n:ns),
                        current_terms = (full_term:terms),..}
              | Term "filter" [current_ty,_] <- full_term,
@@ -542,9 +501,7 @@ synthSpec sigs =
                         -- need only test once!
                         let nvs = 100
                             qc_args' = qc_args {QC.maxSuccess = nvs}
-                        in collectStats $ QC.isSuccess <$>
-                                           (QC.quickCheckWithResult qc_args' $
-                                           -- (QC.verboseCheckWithResult qc_args' $
+                        in collectStats $ (quickCheckBoolOnly qc_args' $
                                               dynProp $ termToGen eq_inst sig Map.empty t)
                     testAll :: Dynamic -> Sig -> [Term] -> IO (Maybe Term)
                     testAll eq_inst sig [] = return Nothing
@@ -597,7 +554,7 @@ synthSpec sigs =
                 refreshCount ("exploring " ++ (show current_ty)) ""
                              -- (" (" ++ (show $ length terms) ++ " left at this size)")
                              ("(" ++ (show $ length terms_to_test) ++ " to test...)") cur_lvl so_far
-                holds <- testAllInOrderAsync eq_inst complSig terms_to_test
+                holds <- testAllPar eq_inst complSig terms_to_test
 
 
                 let sf' = so_far + 1
@@ -646,13 +603,17 @@ synthSpec sigs =
                                        "" cur_lvl sf'
                         -- continue sf' rwrts'' ns terms
                         let Term "filter" [_, rewrite_term] = full_term
+                            new_rw = toTemplate gsig rewrite_term
+                            new_rws = (new_rw:rewrite_terms)
+                            -- we've learned a new rewrite, so we restart the
+                            -- machine with a new shouldPrune function.
                         go' GoState {
                                 seen = seen <> IntSet.singleton (hash np_term),
                                 so_far=sf',
                                 rwrts = rwrts'',
                                 law_nums = ns,
                                 current_terms = terms,
-                                rewrite_terms = (toTemplate gsig rewrite_term):rewrite_terms,
+                                rewrite_terms = new_rws,
                                 ..}
               where skip seen = do go' GoState{so_far = so_far+1,
                                                 current_terms = terms, ..}

@@ -25,7 +25,8 @@ common deps
                  QuickCheck,
                  async,
                  hashable,
-                 unordered-containers
+                 unordered-containers,
+                 random
 
 
 library
@@ -34,7 +35,8 @@ library
   exposed-modules:
     SynthSpec,
     SynthSpec.Types,
-    SynthSpec.Utils
+    SynthSpec.Utils,
+    SynthSpec.Testing
 
 
 executable synthspec
