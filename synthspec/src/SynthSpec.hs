@@ -475,7 +475,6 @@ synthSpec sigs =
                 (return $ reduceFully $ union (map (filterType nextNode . typeToFta) sig_ty_cons))
 
 
-
             let terms = getAllTermsPrune
                           (shouldPrune $ partition hasTemplate rewrite_terms)
                           filtered_and_reduced
