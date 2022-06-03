@@ -79,9 +79,19 @@ sigGivens typeMod sigs = (--eqDef <>
                  , eq_insts
                  , arbs)
   where trs = map (typeMod . sfTypeRep) $ Map.elems sigs
-        eq_insts = Map.fromList $ mapMaybe (\c -> ((c,) . fmap sfFunc) <$> toEqInst c)
-                                $ filter isCon allCons
-        arbs = Map.fromList $ mapMaybe (\ty -> (ty,)  <$> consName ty) allCons
+        user_eq = mapMaybe g_eq $ Map.assocs sigs
+          where g_eq (k, GivenFun gv@(GivenInst _ eq) tsk)  = Just (tsk, (k,eq))
+                g_eq _ = Nothing
+        eq_insts = Map.fromList $ user_eq ++
+                    (mapMaybe (\c -> ((c,) . fmap sfFunc) <$> toEqInst c)
+                                $ filter isCon allCons)
+        user_arbs = mapMaybe g_arb $ Map.assocs sigs
+          where g_arb (k, f@(GivenFun (GivenVar {})  tsk)) = Just (tsk, (k,f))
+                g_arb _ = Nothing
+        arbs = Map.fromList 
+                    (user_arbs ++
+                    mapMaybe (\ty -> (ty,)  <$> consName ty) allCons)
+        
         isCon (TCons _ _) = True
         isCon _ = False
         -- we specialcase lists
@@ -116,28 +126,6 @@ sigGivens typeMod sigs = (--eqDef <>
                  toTup gf@(GivenFun gv _) = (gvToName gv, gf)
         
         -- We have show here as well, but could be removed.
-        genRepFromProxy :: (Show a, Eq a, Typeable a, Arbitrary a) =>
-                           Proxy a -> GeneratedInstance
-        genRepFromProxy (Proxy :: Proxy a) = Gend {..}
-          where g_tr = typeRep (Proxy :: Proxy a)
-                g_arb = DynGen (arbitrary :: Gen a)
-                g_eq = Just (toDyn wrappedEq)
-                --g_eq = Just (toDyn ((==) :: a -> a -> Bool))
-                g_empty_li = toDyn ([] :: [a])
-                g_li_i = genRepFromProxy (Proxy :: Proxy [a])
-                -- TODO: do something fancier here.
-                -- we could add a Show here?
-                wrappedEq :: a -> a -> Property
-                wrappedEq a b = property ((==) a b)
-
-        genRepFromProxyNoEq :: (Typeable a, Arbitrary a) =>
-                               Proxy a -> GeneratedInstance
-        genRepFromProxyNoEq (Proxy :: Proxy a) = Gend {..}
-          where g_tr = typeRep (Proxy :: Proxy a)
-                g_arb = DynGen (arbitrary :: Gen a)
-                g_empty_li = toDyn ([] :: [a])
-                g_eq = Nothing
-                g_li_i = genRepFromProxyNoEq (Proxy :: Proxy [a])
 
 
         genRep :: TypeSkeleton -> Maybe GeneratedInstance
@@ -171,6 +159,45 @@ sigGivens typeMod sigs = (--eqDef <>
             = Just $ genRepFromProxy (Proxy :: Proxy ([A],[A]))
         genRep x = trace ("*** Warning: Could not generate instances for '" ++ (show x) ++ "', ignoring...") Nothing
 
+
+addEquality :: (Eq a, Typeable a) => Proxy a -> Sig
+addEquality (Proxy :: Proxy a) = Map.singleton key val
+  where g_tr = typeRep (Proxy :: Proxy a)
+        wrappedEq :: a -> a -> Property
+        wrappedEq a b = property ((==) a b)
+        key = "<@Eq_"<>(T.pack $ show g_tr)<>"@>"
+        val = GivenFun (GivenInst g_tr (toDyn wrappedEq)) $
+                        TCons "Eq" [typeRepToTypeSkeleton g_tr]
+
+addArbitrary :: (Typeable a, Arbitrary a) => Proxy a -> Sig
+addArbitrary (Proxy :: Proxy a) = Map.singleton (gvToName gv) val
+  where g_tr = typeRep (Proxy :: Proxy a)
+        g_arb = DynGen (arbitrary :: Gen a)
+        gv = GivenVar g_tr 0 g_arb
+        val = GivenFun gv $ typeRepToTypeSkeleton g_tr
+
+genRepFromProxy :: (Show a, Eq a, Typeable a, Arbitrary a) =>
+                    Proxy a -> GeneratedInstance
+genRepFromProxy (Proxy :: Proxy a) = Gend {..}
+    where g_tr = typeRep (Proxy :: Proxy a)
+          g_arb = DynGen (arbitrary :: Gen a)
+          g_eq = Just (toDyn wrappedEq)
+          --g_eq = Just (toDyn ((==) :: a -> a -> Bool))
+          g_empty_li = toDyn ([] :: [a])
+          g_li_i = genRepFromProxy (Proxy :: Proxy [a])
+          -- TODO: do something fancier here.
+          -- we could add a Show here?
+          wrappedEq :: a -> a -> Property
+          wrappedEq a b = property ((==) a b)
+
+genRepFromProxyNoEq :: (Typeable a, Arbitrary a) =>
+                        Proxy a -> GeneratedInstance
+genRepFromProxyNoEq (Proxy :: Proxy a) = Gend {..}
+    where g_tr = typeRep (Proxy :: Proxy a)
+          g_arb = DynGen (arbitrary :: Gen a)
+          g_empty_li = toDyn ([] :: [a])
+          g_eq = Nothing
+          g_li_i = genRepFromProxyNoEq (Proxy :: Proxy [a])
 
 
 
