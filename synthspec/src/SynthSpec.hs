@@ -519,7 +519,7 @@ synthSpec sigs =
                 cf n = M.Any (any (nodeRepresents n) templs)
                 (templs, rws) = partition hasTemplate rewrite_terms
                 hasTemplate (Term (Symbol s) args) = T.isPrefixOf "<v" s || any hasTemplate args
-                terms = getAllTermsPrune shouldPrune $ filtered_and_reduced
+                terms = HS.toList $ HS.fromList $ getAllTermsPrune shouldPrune $ filtered_and_reduced
 
             go' GoState{current_terms = terms,
                         cur_lvl = lvl_num, ..}
@@ -718,15 +718,15 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
         parIfReq s = s
 
 refreshCount :: String -> String -> String -> Int -> Int -> IO ()
--- refreshCount _ _ _ _ _ = return ()
-refreshCount pre mid post size i = putStr (o ++ fill ++ "\r") >> flushStdHandles
-  where o' = "\r\ESC[K"
-            ++ pre ++ " terms of size " ++ show size
-             ++ mid
-            ++ ", " ++ show i ++ " examined so far. "
-        o = if length (o' ++ post) <= 120 then o' ++ post 
-            else (take 117 (o' ++ post)) ++ "..."
-        fill = replicate (max 0 (length o - 120)) ' '
+refreshCount _ _ _ _ _ = return ()
+-- refreshCount pre mid post size i = putStr (o ++ fill ++ "\r") >> flushStdHandles
+--   where o' = "\r\ESC[K"
+--             ++ pre ++ " terms of size " ++ show size
+--              ++ mid
+--             ++ ", " ++ show i ++ " examined so far. "
+--         o = if length (o' ++ post) <= 120 then o' ++ post 
+--             else (take 117 (o' ++ post)) ++ "..."
+--         fill = replicate (max 0 (length o - 120)) ' '
 
 ppTy :: TypeSkeleton -> T.Text
 ppTy (TCons t []) = t
