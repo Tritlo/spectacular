@@ -468,7 +468,7 @@ synthSpec sigs =
             -- filtered_and_reduced <- fmap refold <$> collectStats $
             --     reduceFullyAndLog $ filterType nextNode (typeToFta tc)
             filtered_and_reduced <- fmap refold <$> collectStats $
-                (return $ reduceFully $ union (map (filterType nextNode . typeToFta) sig_ty_cons))
+                (reduceFullyAndLog $ union (map (filterType nextNode . typeToFta) sig_ty_cons))
 
 
             let terms = getAllTermsPrune
