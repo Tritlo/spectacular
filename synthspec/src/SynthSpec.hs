@@ -343,6 +343,7 @@ data GoState = GoState {seen :: !IntSet, --hashed integers
                         law_nums :: [Int],
                         current_terms :: [Term],
                         rewrite_terms :: ![Term],
+                        ty_cons_to_check :: [TypeSkeleton],
                         phase_number :: Int
                         } deriving (Show)
 
@@ -424,17 +425,20 @@ synthSpec sigs =
            go :: Int -> Int -> IO ()
            go n phase  =
                   do rwrts <- initRewrites
+                     let stecta@StEcta{..} = mkStecta sig monomorphiseType monomorphiseType
                      go' GoState {seen = IntSet.empty,
                                   rewrite_terms = [],
                                   rwrts = rwrts,
                                   unique_terms = Map.empty,
-                                  stecta = mkStecta sig monomorphiseType monomorphiseType,
+                                  stecta = stecta,
                                   so_far = 0,
                                   cur_lvl = 0,
-                                  lvl_nums = [1..n],
+                                  lvl_nums = [1..(n+1)],
                                   law_nums = [1..],
                                   phase_number = 1,
-                                  current_terms = [] }
+                                  current_terms = [],
+                                  ty_cons_to_check = sig_ty_cons
+                                  }
              where 
                go' :: GoState -> IO ()
                go' (GoState{ lvl_nums = [],
@@ -444,10 +448,11 @@ synthSpec sigs =
                     putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
                     when (pn < phase) $ do
                         putStrLn $ "Starting phase with more types...."
+                        let stecta@StEcta{..} = mkStecta sig id id
                         go' GoState{ cur_lvl = 0,
                                     phase_number = 2,
                                     lvl_nums= [1..cur_lvl],
-                                    stecta = mkStecta sig id id,
+                                    ty_cons_to_check = sig_ty_cons,
                                     current_terms=[],..}
                go' (GoState{ lvl_nums = [],
                              phase_number = pn@(2),
@@ -456,11 +461,11 @@ synthSpec sigs =
                     putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
                     when (pn < phase) $ do
                         putStrLn $ "Starting mono-polymorphic phase...."
+                        let stecta@StEcta{..} = mkStecta sig id (generalizeType . monomorphiseType)
                         go' GoState{ cur_lvl = 0,
                                     phase_number = 3,
                                     lvl_nums= [1..cur_lvl],
-                                    -- stecta = mkStecta sig monomorphiseType (generalizeType . monomorphiseType),
-                                    stecta = mkStecta sig id (generalizeType . monomorphiseType),
+                                    ty_cons_to_check = sig_ty_cons,
                                     current_terms=[],..}
                go' (GoState{ lvl_nums = [],
                              phase_number = pn@(3),
@@ -468,42 +473,40 @@ synthSpec sigs =
                  putStrLn $ "Mono-polymorphic phase done! " ++ show so_far ++ " terms examined."
                  putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
                  when (pn < phase) $ do
+                     let stecta@StEcta{..} = mkStecta sig generalizeType generalizeType
                      putStrLn $ "Starting fully-polymorphic phase...."
                      go' GoState{ cur_lvl = 0,
                                  phase_number = 4,
                                  lvl_nums= [1..cur_lvl],
-                                 stecta = mkStecta sig generalizeType generalizeType ,
+                                 ty_cons_to_check = sig_ty_cons,
                                  current_terms=[],..}
                go' (GoState{ lvl_nums = [],
                             current_terms = [] , ..}) = do
                  putStrLn $ "Done! " ++ show so_far ++ " terms examined."
                  putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
                go' GoState {stecta=stecta@StEcta{..},
-                            lvl_nums=(lvl_num:lvl_nums),
+                            ty_cons_to_check = [],
+                            lvl_nums = (lvl_num:lvl_nums),
+                            current_terms = current_terms@[],..} = do
+                    go' GoState {ty_cons_to_check = sig_ty_cons, cur_lvl = lvl_num, ..}
+               go' GoState {stecta=stecta@StEcta{..},
+                            ty_cons_to_check = (tc:ty_cons_to_check),
                             current_terms = [],..} = do
                 --putStrLn ("Checking " ++ (T.unpack $ ppTy tc) ++ " with size " ++ show lvl_num ++ "...")
 
-                refreshCount "Folding ECTA" "" "" lvl_num so_far
+                refreshCount "Folding ECTA" "" "" cur_lvl so_far
                 let toText e = T.pack $ ppNpTerm $ npTerm e
-                    -- unique_args = (concatMap (\(t,es) -> map ((,typeToFta t) . Symbol . toText ) es)
-                    --                 $ (Map.assocs (Map.unionWith
-                    --                                 (\a b -> nubHash (a ++ b))
-                    --                                 unique_terms scope_uniques)))
-                    -- any_unique_arg = Node $ map (\(s,t) -> Edge s [t]) unique_args
-                    nextNode = union $ mtk scope_comps any_arg True lvl_num
-                    -- TODO: where to best do the rewrites?
-                -- filtered_and_reduced <- fmap refold <$> collectStats $
-                --     reduceFullyAndLog $ filterType nextNode (typeToFta tc)
+                    nextNode = union $ mtk scope_comps any_arg True cur_lvl
+
                 filtered_and_reduced <- fmap refold <$> collectStats $
-                    (return $ reduceFully $ union (map (filterType nextNode . typeToFta) sig_ty_cons))
+                    (return $ reduceFully $ (filterType nextNode $ typeToFta tc))
 
 
                 let terms = getAllTermsPrune
                               (shouldPrune $ partition hasTemplate rewrite_terms)
                               filtered_and_reduced
 
-                go' GoState{ cur_lvl = lvl_num,
-                             current_terms=terms,..}
+                go' GoState{ current_terms=terms,..}
                go' GoState{law_nums = law_nums@(n:ns),
                            current_terms = (full_term:terms),
                            stecta = stecta@StEcta{..},
