@@ -4,6 +4,11 @@
 lists-build:
 	cabal configure --enable-profiling --profiling-detail=all-functions && cabal build --enable-profiling --profiling-detail=all-functions --reinstall && cabal exec -- ghc -fprof-auto -prof -O2 -threaded -rtsopts -o lus examples/Lists.hs -package synthspec-0.0.1
 
+enable-prof:
+	cabal configure --enable-profiling --profiling-detail=all-functions
+disable-prof:
+	cabal configure --disable-profiling
+
 mini-lists-build:
 	cabal build --enable-profiling --profiling-detail=all-functions --reinstall && cabal exec -- ghc -fprof-auto -prof -O2 -threaded -rtsopts -o minili examples/MiniList.hs -package synthspec-0.0.1
 
