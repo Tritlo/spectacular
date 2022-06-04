@@ -70,9 +70,9 @@ data GeneratedInstance = Gend {
     g_li_i :: GeneratedInstance
     }
 
-sigGivens :: (TypeSkeleton -> TypeSkeleton) -> Sig 
+sigGivens :: (TypeSkeleton -> TypeSkeleton) -> Sig -> (TypeSkeleton -> (Maybe GeneratedInstance))
           -> (Sig, Map TypeSkeleton (Text, Dynamic) , Map TypeSkeleton (Text,Func))
-sigGivens typeMod sigs = (--eqDef <>
+sigGivens typeMod sigs extraReps = (--eqDef <>
                    -- Map.fromList (mapMaybe toEqInst allCons) <>
                    -- Map.fromList (mapMaybe toEmptyLi allCons) <>
                    Map.fromList (mapMaybe consName allCons)
@@ -125,8 +125,6 @@ sigGivens typeMod sigs = (--eqDef <>
            where g rep = toTup (GivenFun (GivenVar (g_tr rep) 0 (g_arb rep)) t) 
                  toTup gf@(GivenFun gv _) = (gvToName gv, gf)
         
-        -- We have show here as well, but could be removed.
-
 
         genRep :: TypeSkeleton -> Maybe GeneratedInstance
         genRep (TVar a) = genRep (TCons (T.toUpper a) [])
@@ -157,8 +155,12 @@ sigGivens typeMod sigs = (--eqDef <>
             = Just $ genRepFromProxy (Proxy :: Proxy ([A],[B]))
         genRep (TCons "(,)" [TCons "[]" [TCons "A" []], TCons "[]" [TCons "A" []]])
             = Just $ genRepFromProxy (Proxy :: Proxy ([A],[A]))
-        genRep x = trace ("*** Warning: Could not generate instances for '" ++ (show x) ++ "', ignoring...") Nothing
-
+        --- To allow for types not considered here
+        --- Not sure if this is the best way to go about it
+        genRep x = 
+          case extraReps x of 
+            Just t -> Just t
+            Nothing -> trace ("*** Warning: Could not generate instances for '" ++ (show x) ++ "', ignoring...") Nothing
 
 addEquality :: (Eq a, Typeable a) => Proxy a -> Sig
 addEquality (Proxy :: Proxy a) = Map.singleton key val
@@ -202,7 +204,6 @@ genRepFromProxyNoEq (Proxy :: Proxy a) = Gend {..}
 
 
 
-
 arith :: (Typeable a, Num a, Eq a) => Proxy a -> Sig
 arith p = Map.fromList $
             -- ("<@Eq_"<>trtext<>"@>", 
@@ -234,7 +235,7 @@ arith p = Map.fromList $
         sign = flip asProxyTypeOf p . signum
         ab = flip asProxyTypeOf p . abs
         neg = flip asProxyTypeOf p . negate
-        fromI = flip asProxyTypeOf p . fromInteger 
+        fromI = flip asProxyTypeOf p . fromInteger
 
 typeRepToTypeSkeleton :: TypeRep -> TypeSkeleton
 typeRepToTypeSkeleton tr

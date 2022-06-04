@@ -5,7 +5,8 @@
 module SynthSpec (
     module SynthSpec.Types,
     module Data.Proxy,
-    synthSpec
+    synthSpec,
+    synthSpec'
 ) where
 
 import qualified Data.Map.Strict as Map
@@ -347,8 +348,6 @@ data GoState = GoState {seen :: !IntSet, --hashed integers
                         phase_number :: Int
                         } deriving (Show)
 
-
-
 synthSpec :: [Sig] -> IO ()
 synthSpec sigs =
     do args <- Env.getArgs
@@ -358,8 +357,11 @@ synthSpec sigs =
        let phase = case args of
                     _:arg:_ | Just n <- TR.readMaybe arg -> n
                     _ -> 3 -- Set to 6 to save time on the flight xD:w
+       synthSpec' size phase (const Nothing) sigs
 
-       let sig = mconcat sigs
+synthSpec' :: Int -> Int -> (TypeSkeleton -> (Maybe GeneratedInstance)) -> [Sig] -> IO ()
+synthSpec' size phase extraReps sigs =
+    do let sig = mconcat sigs
            mkStecta sig givenTrans skelTrans =
                     StEcta { scope_comps = sc, any_arg = ag,
                              compl_sig = compl_sig,
@@ -367,7 +369,7 @@ synthSpec sigs =
                              eq_insts = eq_insts,
                              arb_insts = arbs }
              where skels =  Map.assocs $ (skelTrans  . sfTypeRep) <$> sig
-                   (givenSig, eq_insts, arbs) = sigGivens givenTrans sig
+                   (givenSig, eq_insts, arbs) = sigGivens givenTrans sig extraReps
                    givens = Map.assocs $ (givenTrans . sfTypeRep) <$> givenSig
                    compl_sig = sig <> givenSig
                    sc = skels ++ givens
@@ -707,7 +709,7 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
         parIfReq s = s
 
 refreshCount :: String -> String -> String -> Int -> Int -> IO ()
--- refreshCount _ _ _ _ _ = return ()
+refreshCount _ _ _ _ _ = return ()
 refreshCount pre mid post size i = putStr (o ++ fill ++ "\r") >> flushStdHandles
   where o' = "\r\ESC[K"
             ++ pre ++ " terms of size " ++ show size
