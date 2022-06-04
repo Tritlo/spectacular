@@ -308,11 +308,11 @@ shouldPrune (templs,rws) uv (Left tf) = do
     --     _ -> return ()
     if IM.null deps
     then if (uv == intToUVar 0)
-         then {-# SCC "fresh-start" #-} fragRepresents tf (rws ++ templs)
+         then {-# SCC "fresh-start" #-} fragRepresents True tf (rws ++ templs)
          else return False -- a type is being selected.
     else case deps IM.!? (uvarToInt uv) of
             Just rw' -> do deletePruneDep (uvarToInt uv)
-                           {-# SCC "resume" #-} fragRepresents tf rw'
+                           {-# SCC "resume" #-} fragRepresents True tf rw'
             _ -> return False
 -- TODO: this is too strong, it just throws everything away even if
 -- we wouldn't encounter that one.

@@ -398,21 +398,19 @@ lastExpandableUVar = do
 
 
 
-fragRepresents :: TermFragment -> [Term] -> EnumerateM Bool
-fragRepresents (TermFragmentNode "filter" [_,t]) rwrs = fragRepresents t rwrs
-fragRepresents (TermFragmentNode "app" [_,_,f,v]) rwrs =
-    fragRepresents (TermFragmentNode "app" [f,v]) rwrs
-fragRepresents (TermFragmentNode s [_]) rwrs =
-    fragRepresents (TermFragmentNode s []) rwrs
+fragRepresents :: Bool -> TermFragment -> [Term] -> EnumerateM Bool
+fragRepresents susOk (TermFragmentNode "filter" [_,t]) rwrs = fragRepresents susOk t rwrs
+fragRepresents susOk (TermFragmentNode "app" [_,_,f,v]) rwrs =
+    fragRepresents susOk (TermFragmentNode "app" [f,v]) rwrs
+fragRepresents susOk (TermFragmentNode s [_]) rwrs =
+    fragRepresents susOk (TermFragmentNode s []) rwrs
 
-fragRepresents (TermFragmentNode s@(Symbol sym) ts) rwrs = do
-    matches <- checkSelf $ map snd $
-                 filter ((\sym@(Symbol v) ->
-                          sym == s || "<v" `T.isPrefixOf` v) . fst)
-                        (map unTerm rwrs)
-     
+fragRepresents susOk (TermFragmentNode s@(Symbol sym) ts) rwrs = do
+    matches <- checkChildren ts
     if matches then return True
-    else checkChildren ts
+    else checkSelf $ map snd $
+           filter ((\sym@(Symbol v) -> sym == s || "<v" `T.isPrefixOf` v) . fst)
+                            (map unTerm rwrs)
     where unTerm (Term "filter" [_,t]) = unTerm t
           unTerm (Term "app" [_, _, f,v]) = ("app", [f,v])
           unTerm (Term s [_]) = (s, [])
@@ -428,24 +426,26 @@ fragRepresents (TermFragmentNode s@(Symbol sym) ts) rwrs = do
                            -> EnumerateM Bool
                   checkAll [] = return True
                   checkAll ((t,rw):rws) = do
-                    res <- fragRepresents t rw
+                    res <- fragRepresents False t rw
                     if not res then return False
                     else checkAll rws
             
           checkChildren :: [TermFragment] -> EnumerateM Bool
           checkChildren [] = return False
           checkChildren (tf:tfs) =
-            do res <- fragRepresents tf rwrs
+            do res <- fragRepresents susOk tf rwrs
                if res then return True
                else checkChildren tfs
-
-fragRepresents (TermFragmentUVar uv) rwrs =
+-- TODO: We suspsend the single pruneDep here, when it is OK, but
+-- we'd like to say "suspend all of these".
+fragRepresents susOk (TermFragmentUVar uv) rwrs =
     do val <- getUVarValue uv
        case val of
-           UVarEnumerated t -> fragRepresents t rwrs
+           UVarEnumerated t -> fragRepresents susOk t rwrs
            _ -> if anyIsTemplate rwrs
                 then return True
-                else const False <$> addPruneDep (uvarToInt uv) rwrs
+                else if susOk then const False <$> addPruneDep (uvarToInt uv) rwrs
+                     else return False
 
 anyIsTemplate :: [Term] -> Bool
 anyIsTemplate = any (\(Term (Symbol s) _) -> T.isPrefixOf "<v" s)
@@ -464,7 +464,7 @@ enumerateOutUVar' eager_suspend uv =
        pd <- getPruneDep (uvarToInt uv)
        case pd of
           Just rws -> do deletePruneDep (uvarToInt uv)
-                         res <- fragRepresents t rws
+                         res <- fragRepresents True t rws
                          if res then mzero
                          else return t
           _ -> refreshReferencedUVars >> return t
