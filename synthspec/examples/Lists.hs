@@ -3,7 +3,7 @@
              FlexibleContexts, OverloadedStrings #-}
 import SynthSpec
 
-main = synthSpec' 6 3 (const Nothing) [
+main = synthSpec' 7 3 (const Nothing) [
   con "reverse" (reverse :: [A] -> [A]),
   con "++" ((++) :: [A] -> [A] -> [A]),
   con "[]" ([] :: [A]),
