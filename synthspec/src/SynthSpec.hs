@@ -478,7 +478,7 @@ synthSpec' size phase extraReps sigs =
                  putStrLn $ "Mono-polymorphic phase done! " ++ show so_far ++ " terms examined."
                  putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
                  when (pn < phase) $ do
-                     let stecta@StEcta{..} = mkStecta sig generalizeType generalizeType
+                     let stecta@StEcta{..} = mkStecta sig id generalizeType
                      putStrLn $ "Starting fully-polymorphic phase...."
                      go' GoState{ cur_lvl = 0,
                                  phase_number = 4,
