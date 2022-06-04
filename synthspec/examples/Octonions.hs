@@ -56,7 +56,7 @@ instance Arbitrary It where
 extraReps (TCons "It" []) = Just $ genRepFromProxy (Proxy :: Proxy It)
 extraReps _ = Nothing
 
-main = synthSpec' 9 1 extraReps [
+main = synthSpec' 7 3 extraReps [
   con "*" ((*) :: It -> It -> It),
   (con "inv" (recip :: It -> It)),
   con "1" (1 :: It)]

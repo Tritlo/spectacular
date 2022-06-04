@@ -3,7 +3,7 @@
 import Control.Monad
 import SynthSpec
 
-main = synthSpec' 20 1 (const Nothing) [
+main = synthSpec' 7 3 (const Nothing) [
   con "return" (return :: A -> [A]),
   con ">>=" ((>>=) :: [A] -> (A -> [B]) -> [B]),
   con "++" ((++) :: [A] -> [A] -> [A]),
