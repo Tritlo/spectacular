@@ -486,7 +486,7 @@ enumerateFully  =  const () <$> enumerateFully' False (\ _ _ -> return False)
 enumerateFully' :: Bool
                 -> (UVar -> Either TermFragment Node -> EnumerateM Bool)
                 -> EnumerateM Bool
-enumerateFully' eager_suspend shouldPrune = do
+enumerateFully' eager_suspend oracle = do
   muv <- if eager_suspend
         then do hints <- IntMap.keysSet <$> getPruneDeps
                 if IntSet.null hints
@@ -511,14 +511,14 @@ enumerateFully' eager_suspend shouldPrune = do
    ExpansionNext uv ->
     let continue = do
           tf <- enumerateOutUVar' eager_suspend uv
-          spr <- shouldPrune uv (Left tf)
+          spr <- oracle uv (Left tf)
           if spr then mzero
-          else enumerateFully' eager_suspend shouldPrune
+          else enumerateFully' eager_suspend oracle
     in do UVarUnenumerated (Just n) scs <- getUVarValue uv
           case n of 
             Mu _ | scs == Sequence.empty -> return True
-            _ -> do should_prune_res <- shouldPrune uv (Right n)
-                    if should_prune_res then mzero else continue 
+            _ -> do should_prune <- oracle uv (Right n)
+                    if should_prune then mzero else continue 
 
 
 
@@ -564,12 +564,12 @@ getAllTruncatedTerms n = map (termFragToTruncatedTerm . fst) $
 
 getAllTermsPrune :: (UVar -> Either TermFragment Node -> EnumerateM Bool)
                  -> Node -> [Term]
-getAllTermsPrune shouldPrune n =
-    map fst $ flip runEnumerateM (initEnumerationState n) $ enumPrune shouldPrune
+getAllTermsPrune oracle n =
+    map fst $ flip runEnumerateM (initEnumerationState n) $ enumPrune oracle
 
 enumPrune :: (UVar -> Either TermFragment Node -> EnumerateM Bool) -> EnumerateM Term
-enumPrune shouldPrune = do finished <- enumerateFully' True shouldPrune
-                           if finished then expandUVar (intToUVar 0) else mzero
+enumPrune oracle = do finished <- enumerateFully' True oracle
+                      if finished then expandUVar (intToUVar 0) else mzero
 
 getAllTerms :: Node -> [Term]
 getAllTerms = getAllTermsPrune (\ _ _ -> return False)

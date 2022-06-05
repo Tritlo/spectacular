@@ -295,11 +295,11 @@ termSize (Term s args) = 1 + sum (map termSize args)
 
 
 -- TODO: we're maybe calling getUVarValue too often here.
-shouldPrune :: ([Term],[Term])
+oracle :: ([Term],[Term])
             -> UVar
             -> Either TermFragment Node
             -> EnumerateM Bool
-shouldPrune (templs,rws) uv (Left tf) = do
+oracle (templs,rws) uv (Left tf) = do
     deps <- getPruneDeps
     -- traceShowM (uv, tf)
     -- traceShowM deps
@@ -317,7 +317,7 @@ shouldPrune (templs,rws) uv (Left tf) = do
             _ -> return False
 -- TODO: this is too strong, it just throws everything away even if
 -- we wouldn't encounter that one.
-shouldPrune (templs,rws) uv (Right n) = do
+oracle (templs,rws) uv (Right n) = do
     return (any (nodeRepresentsTemplate n) (templs ++ rws))
     -- let cf n = M.Any (any (nodeRepresentsTemplate n) $ templs)
     --     will_encounter =  M.getAny (crush (onNormalNodes cf) n)
@@ -508,7 +508,7 @@ tacularSpec' size phase extraReps sigs =
 
 
                 let terms = getAllTermsPrune
-                              (shouldPrune $ partition hasTemplate rewrite_terms)
+                              (oracle $ partition hasTemplate rewrite_terms)
                               filtered_and_reduced
 
                 go' GoState{ current_terms=terms,..}
@@ -638,7 +638,7 @@ tacularSpec' size phase extraReps sigs =
                                 new_rw = toTemplate gsig rewrite_term
                                 new_rws = (new_rw:rewrite_terms)
                                 -- we've learned a new rewrite, so we restart the
-                                -- machine with a new shouldPrune function.
+                                -- machine with a new oracle function.
                             go' GoState {
                                     seen = seen <> IntSet.singleton (hash np_term),
                                     so_far=sf',
