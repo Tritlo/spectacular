@@ -2,11 +2,11 @@
 {-# LANGUAGE OverloadedStrings, TypeApplications, RecordWildCards,
              TupleSections, StandaloneDeriving, DeriveAnyClass,
              DeriveGeneric, BangPatterns #-}
-module SynthSpec (
-    module SynthSpec.Types,
+module Spectacular (
+    module Spectacular.Types,
     module Data.Proxy,
-    synthSpec,
-    synthSpec'
+    tacularSpec,
+    tacularSpec'
 ) where
 
 import qualified Data.Map.Strict as Map
@@ -20,10 +20,10 @@ import qualified Data.Dynamic as Dyn
 import Data.Dynamic (Dynamic)
 import qualified Data.Bifunctor as Bi
 import MonadUtils (concatMapM)
-import SynthSpec.Types
-import SynthSpec.Utils
-import SynthSpec.Testing
-import qualified SynthSpec.Utils as SS
+import Spectacular.Types
+import Spectacular.Utils
+import Spectacular.Testing
+import qualified Spectacular.Utils as SS
 import Data.Proxy (Proxy(..))
 
 
@@ -348,8 +348,8 @@ data GoState = GoState {seen :: !IntSet, --hashed integers
                         phase_number :: Int
                         } deriving (Show)
 
-synthSpec :: [Sig] -> IO ()
-synthSpec sigs =
+tacularSpec :: [Sig] -> IO ()
+tacularSpec sigs =
     do args <- Env.getArgs
        let size = case args of
                     arg:_ | Just n <- TR.readMaybe arg -> n
@@ -357,10 +357,10 @@ synthSpec sigs =
        let phase = case args of
                     _:arg:_ | Just n <- TR.readMaybe arg -> n
                     _ -> 3 -- Set to 6 to save time on the flight xD:w
-       synthSpec' size phase (const Nothing) sigs
+       tacularSpec' size phase (const Nothing) sigs
 
-synthSpec' :: Int -> Int -> (TypeSkeleton -> (Maybe GeneratedInstance)) -> [Sig] -> IO ()
-synthSpec' size phase extraReps sigs =
+tacularSpec' :: Int -> Int -> (TypeSkeleton -> (Maybe GeneratedInstance)) -> [Sig] -> IO ()
+tacularSpec' size phase extraReps sigs =
     do let sig = mconcat sigs
            mkStecta sig givenTrans skelTrans =
                     StEcta { scope_comps = sc, any_arg = ag,

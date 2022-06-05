@@ -1,5 +1,5 @@
 
-module SynthSpec.Testing where
+module Spectacular.Testing where
 import Test.QuickCheck.Test
 import Test.QuickCheck.Property
 import Test.QuickCheck

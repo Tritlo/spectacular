@@ -6,8 +6,8 @@ import qualified Data.Map as M
 import Data.List
 import Data.Map(Map)
 import Data.Typeable
-import SynthSpec
-import SynthSpec.Types (genRepFromProxy)
+import Spectacular
+import Spectacular.Types (genRepFromProxy)
 import Application.TermSearch.Type (TypeSkeleton(..))
 import Test.QuickCheck
 import Test.QuickCheck.Random
@@ -119,7 +119,7 @@ extraReps _ = Nothing
 --   monoType (Proxy :: Proxy (Regex Sym)),
 --   monoType (Proxy :: Proxy Sym) ]
 
-main = synthSpec' 7 3 extraReps [
+main = tacularSpec' 7 3 extraReps [
   con "char" (Char :: Sym -> Regex Sym),
   con "any" (AnyChar :: Regex Sym),
   con "e" (Epsilon :: Regex Sym),

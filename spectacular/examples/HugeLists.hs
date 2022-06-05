@@ -4,7 +4,7 @@
 import Data.List
 import Control.Monad
 
-import SynthSpec
+import Spectacular
 
 usort :: [Int] -> [Int]
 usort [] = []
@@ -12,7 +12,7 @@ usort (a:as) = usort (filter (<= a) as)
             ++ [a]
             ++ usort (filter (> a) as)
 
-main = synthSpec' 5 3 (const Nothing) [
+main = tacularSpec' 5 3 (const Nothing) [
   con "length" (length :: [A] -> Int),
   con "sort" (sort :: [Int] -> [Int]),
   con "scanr" (scanr :: (A -> B -> B) -> B -> [A] -> [B]),

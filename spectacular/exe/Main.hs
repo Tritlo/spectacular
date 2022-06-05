@@ -1,10 +1,12 @@
--- Some usual list functions.
-{-# LANGUAGE OverloadedStrings #-}
-import SynthSpec
+{-# LANGUAGE ScopedTypeVariables, ConstraintKinds, RankNTypes, ConstraintKinds,
+             FlexibleContexts, OverloadedStrings #-}
+module Main where
 
-main = synthSpec [
-  con "head" (head :: [A] -> A),
-  con "cons" ((:) :: A -> [A] -> [A]),
+
+import Spectacular
+
+main = tacularSpec [
+  con "reverse" (reverse :: [A] -> [A]),
   con "++" ((++) :: [A] -> [A] -> [A]),
   con "[]" ([] :: [A]),
   con "map" (map :: (A -> B) -> [A] -> [B]),
@@ -14,3 +16,5 @@ main = synthSpec [
   -- Add some numeric functions to get more laws about length.
   arith (Proxy :: Proxy Int)
   ]
+
+

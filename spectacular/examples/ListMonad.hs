@@ -1,9 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 -- The monad laws for lists.
 import Control.Monad
-import SynthSpec
+import Spectacular
 
-main = synthSpec' 7 3 (const Nothing) [
+main = tacularSpec' 7 3 (const Nothing) [
   con "return" (return :: A -> [A]),
   con ">>=" ((>>=) :: [A] -> (A -> [B]) -> [B]),
   con "++" ((++) :: [A] -> [A] -> [A]),

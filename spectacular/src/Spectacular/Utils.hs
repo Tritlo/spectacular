@@ -1,6 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE  OverloadedStrings #-}
-module SynthSpec.Utils where
+module Spectacular.Utils where
 
 -- These will be ruined by GHC 9.0+ due to the reorganization
 -- These will be ruined by GHC 9.0+ due to the reorganization

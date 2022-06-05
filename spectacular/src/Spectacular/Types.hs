@@ -3,7 +3,7 @@
              StandaloneDeriving, KindSignatures, PolyKinds, RankNTypes,
              GeneralizedNewtypeDeriving, FlexibleContexts, TupleSections #-}
 
-module SynthSpec.Types where
+module Spectacular.Types where
 import Data.Dynamic
 import Data.Map (Map)
 import Data.Text (Text)

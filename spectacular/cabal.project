@@ -1,6 +1,5 @@
 packages: ./
           ../
-          ../Plugin
 
 source-repository-package
     type: git

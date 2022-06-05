@@ -1,8 +1,8 @@
 -- The octonions, made using the Cayley-Dickson construction.
 {-# LANGUAGE GeneralizedNewtypeDeriving, DeriveDataTypeable, FlexibleInstances, OverloadedStrings #-}
 import Data.Ratio
-import SynthSpec
-import SynthSpec.Types (genRepFromProxy)
+import Spectacular
+import Spectacular.Types (genRepFromProxy)
 import Application.TermSearch.Type (TypeSkeleton(..))
 import Test.QuickCheck
 -- import Twee.Pretty
@@ -56,7 +56,7 @@ instance Arbitrary It where
 extraReps (TCons "It" []) = Just $ genRepFromProxy (Proxy :: Proxy It)
 extraReps _ = Nothing
 
-main = synthSpec' 7 3 extraReps [
+main = tacularSpec' 7 3 extraReps [
   con "*" ((*) :: It -> It -> It),
   (con "inv" (recip :: It -> It)),
   con "1" (1 :: It)]

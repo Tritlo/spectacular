@@ -1,5 +1,5 @@
 cabal-version: 3.0
-name: synthspec
+name: spectacular
 build-type: Simple
 version: 0.0.1
 author: Matthías Páll Gissurarson
@@ -7,10 +7,10 @@ maintainer: mpg@mpg.is
 synopsis: ECTA-based QuickSpec
 description:
 
-  SynthSpec is a rewrite of QuickSpec based on the state-of-the-art ECTA (equality-constrained tree automata)
+  Spectacular is a rewrite of QuickSpec based on the state-of-the-art ECTA (equality-constrained tree automata)
   technique for fun and profit (?).
 
-category: Compiler Plugin
+category: Synthesis
 license: MIT
 license-file: LICENSE
 
@@ -33,17 +33,17 @@ library
   import: deps
   hs-source-dirs: src
   exposed-modules:
-    SynthSpec,
-    SynthSpec.Types,
-    SynthSpec.Utils,
-    SynthSpec.Testing
+    Spectacular,
+    Spectacular.Types,
+    Spectacular.Utils,
+    Spectacular.Testing
 
 
-executable synthspec
+executable spectacular
   import: deps
   hs-source-dirs: exe
   ghc-options: -O2 -threaded -rtsopts
-  build-depends: synthspec
+  build-depends: spectacular
   main-is: Main.hs
 
 
