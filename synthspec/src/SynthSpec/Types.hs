@@ -162,6 +162,16 @@ sigGivens typeMod sigs extraReps = (--eqDef <>
             Just t -> Just t
             Nothing -> trace ("*** Warning: Could not generate instances for '" ++ (show x) ++ "', ignoring...") Nothing
 
+addExplicitEquality :: Typeable a => (a -> a -> Bool) -> Sig
+addExplicitEquality (fun :: a -> a -> Bool) = Map.singleton key val
+  where g_tr = typeRep (Proxy :: Proxy a)
+        wrapped a b = property (fun a b)
+        key = "<@Eq_"<>(T.pack $ show g_tr)<>"@>"
+        val = GivenFun (GivenInst g_tr (toDyn wrapped)) $
+                        TCons "Eq" [typeRepToTypeSkeleton g_tr]
+
+        
+
 addEquality :: (Eq a, Typeable a) => Proxy a -> Sig
 addEquality (Proxy :: Proxy a) = Map.singleton key val
   where g_tr = typeRep (Proxy :: Proxy a)
