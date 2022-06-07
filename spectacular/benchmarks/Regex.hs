@@ -119,7 +119,7 @@ extraReps _ = Nothing
 --   monoType (Proxy :: Proxy (Regex Sym)),
 --   monoType (Proxy :: Proxy Sym) ]
 
-main = tacularSpec [
+main = tacularSpec' 7 3 extraReps [
   con "char" (Char :: Sym -> Regex Sym),
   con "any" (AnyChar :: Regex Sym),
   con "e" (Epsilon :: Regex Sym),

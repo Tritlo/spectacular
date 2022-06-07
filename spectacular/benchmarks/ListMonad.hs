@@ -3,7 +3,7 @@
 import Control.Monad
 import Spectacular
 
-main = tacularSpec [
+main = tacularSpec' 7 3 (const Nothing) [
   con "return" (return :: A -> [A]),
   con ">>=" ((>>=) :: [A] -> (A -> [B]) -> [B]),
   con "++" ((++) :: [A] -> [A] -> [A]),
