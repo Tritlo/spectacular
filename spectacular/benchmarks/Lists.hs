@@ -3,7 +3,7 @@
              FlexibleContexts, OverloadedStrings #-}
 import Spectacular
 
-main = tacularSpec [
+main = tacularSpec' 7 3 (const Nothing) [
   con "reverse" (reverse :: [A] -> [A]),
   con "++" ((++) :: [A] -> [A] -> [A]),
   con "[]" ([] :: [A]),
