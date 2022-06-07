@@ -296,10 +296,11 @@ termSize (Term s args) = 1 + sum (map termSize args)
 
 -- TODO: we're maybe calling getUVarValue too often here.
 oracle :: ([Term],[Term])
+            -> IntSet
             -> UVar
             -> Either TermFragment Node
-            -> EnumerateM Bool
-oracle (templs,rws) uv (Left tf) = do
+            -> EnumerateM (Bool,IntSet)
+oracle (templs,rws) st uv (Left tf) = do
     deps <- getPruneDeps
     -- traceShowM (uv, tf)
     -- traceShowM deps
@@ -309,16 +310,16 @@ oracle (templs,rws) uv (Left tf) = do
     --     _ -> return ()
     if IM.null deps
     then if (uv == intToUVar 0)
-         then {-# SCC "fresh-start" #-} fragRepresents True tf (rws ++ templs)
-         else return False -- a type is being selected.
+         then {-# SCC "fresh-start" #-} (,st) <$> fragRepresents True tf (rws ++ templs)
+         else return (False,st) -- a type is being selected.
     else case deps IM.!? (uvarToInt uv) of
             Just rw' -> do deletePruneDep (uvarToInt uv)
-                           {-# SCC "resume" #-} fragRepresents True tf rw'
-            _ -> return False
+                           {-# SCC "resume" #-} (,st) <$> fragRepresents True tf rw'
+            _ -> return (False,st)
 -- TODO: this is too strong, it just throws everything away even if
 -- we wouldn't encounter that one.
-oracle (templs,rws) uv (Right n) = do
-    return (any (nodeRepresentsTemplate n) (templs ++ rws))
+oracle (templs,rws) st uv (Right n) = do
+    (,st) <$> return (any (nodeRepresentsTemplate n) (templs ++ rws))
     -- let cf n = M.Any (any (nodeRepresentsTemplate n) $ templs)
     --     will_encounter =  M.getAny (crush (onNormalNodes cf) n)
     -- let rmIfRep n | any (nodeRepresentsTemplate n) (templs ++ rws) = EmptyNode
@@ -499,17 +500,34 @@ tacularSpec' size phase extraReps sigs =
                             current_terms = [],..} = do
                 --putStrLn ("Checking " ++ (T.unpack $ ppTy tc) ++ " with size " ++ show lvl_num ++ "...")
 
-                refreshCount "Folding ECTA" "" "" cur_lvl so_far
                 let toText e = T.pack $ ppNpTerm $ npTerm e
                     nextNode = union $ mtk scope_comps any_arg False cur_lvl
 
-                filtered_and_reduced <- fmap refold <$> collectStats $
-                    (return $ reduceFully $ (filterType nextNode $ typeToFta tc))
+                refreshCount "Reducing  ECTA" (" for " ++ show tc) "" cur_lvl so_far
+                let max_rounds = 10
+                    ecta = filterType nextNode $ typeToFta tc
+                    untilReduced :: Node -> Int -> Int -> IO (Node, Int)
+                    untilReduced n max_tries sf | sf > max_tries =
+                        do putStrLn "aborting!"
+                           return (n, max_tries)
+                    untilReduced n max_tries sf =
+                      do (r, nr) <- reduceFullyAndLog' max_rounds ecta
+                         if nr < max_rounds
+                         then return (r,sf)
+                         else do putStrLn "not reduced! retrying"
+                                 untilReduced r max_tries (sf +1)
+                (reduced, tries) <- untilReduced ecta 5 0
+                refreshCount "refolding ecta" (" for " ++ show tc) "" cur_lvl so_far
 
+                !folded <- return $ refold reduced
+                refreshCount "Folded, exploring " (" for " ++ show tc) "" cur_lvl so_far
 
-                let terms = getAllTermsPrune
-                              (oracle $ partition hasTemplate rewrite_terms)
-                              filtered_and_reduced
+                let o = oracle $ partition hasTemplate rewrite_terms 
+                let terms = if tries < 5
+                            then getAllTermsPrune IntSet.empty o folded
+                            else let dbo st uv (Left tf) = traceShowM tf >> (o st uv (Left tf))
+                                     dbo st uv (Right n) = traceShowM uv >> (o st uv (Right n))
+                                 in getAllTermsPrune IntSet.empty o folded
 
                 go' GoState{ current_terms=terms,..}
                go' GoState{law_nums = law_nums@(n:ns),

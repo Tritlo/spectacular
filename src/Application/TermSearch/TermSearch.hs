@@ -361,24 +361,18 @@ checkSolution target (s : solutions)
     -- print s
     checkSolution target solutions
 
-reduceFullyAndLog :: Node -> IO Node
-reduceFullyAndLog = go 0
+reduceFullyAndLog' :: Int -> Node -> IO (Node, Int)
+reduceFullyAndLog' max_rounds n = do
+    (n', rounds) <- go 0 n
+    return (n', rounds)
  where
-  go :: Int -> Node -> IO Node
+  go :: Int -> Node -> IO (Node, Int)
   go i n = do
-    putStrLn
-      $  "Round "
-      ++ show i
-      ++ ": "
-      ++ show (nodeCount n)
-      ++ " nodes, "
-      ++ show (edgeCount n)
-      ++ " edges"
-    hFlush stdout
-    -- putStrLn $ renderDot $ toDot n
-    -- print n
     let n' = withoutRedundantEdges (reducePartially n)
-    if n == n' || i >= 30 then return n else go (i + 1) n'
+    if n == n' || i >= max_rounds then return (n,i) else go (i + 1) n'
+
+reduceFullyAndLog :: Node -> IO Node
+reduceFullyAndLog = fmap fst <$> reduceFullyAndLog' 30
 
 --------------------------------------------------------------------------------
 --------------------------------- Test Functions -------------------------------

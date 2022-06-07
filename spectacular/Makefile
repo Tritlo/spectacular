@@ -2,7 +2,7 @@
 
 
 lists-build:
-	cabal configure --enable-profiling --profiling-detail=all-functions && cabal build --enable-profiling --profiling-detail=all-functions --reinstall && cabal exec -- ghc -fprof-auto -prof -O2 -threaded -rtsopts -o lus examples/Lists.hs -package spectacular-0.0.1
+	cabal build --enable-profiling --profiling-detail=all-functions --reinstall && cabal exec -- ghc -fprof-auto -prof -O2 -threaded -rtsopts -o lus examples/Lists.hs -package spectacular-0.0.1
 
 enable-prof:
 	cabal configure --enable-profiling --profiling-detail=all-functions
@@ -49,10 +49,10 @@ huge-prof-7:
 	/usr/bin/time -v ./hlus 7 +RTS -N4 -RTS && profiteur hlus.prof
 
 huge-build-no-pro:
-	cabal configure --disable-profiling && cabal build --reinstall && cabal exec -- ghc -O2 -threaded -rtsopts -o hlus examples/HugeLists.hs -package spectacular-0.0.1
+	cabal build --reinstall && cabal exec -- ghc -O2 -threaded -rtsopts -o hlus examples/HugeLists.hs -package spectacular-0.0.1
 
 lists-build-no-pro:
-	cabal configure --disable-profiling && cabal build --reinstall && cabal exec -- ghc -O2 -threaded -rtsopts -o list-no-pro examples/Lists.hs -package spectacular-0.0.1
+	cabal build --reinstall && cabal exec -- ghc -O2 -threaded -rtsopts -o list-no-pro examples/Lists.hs -package spectacular-0.0.1
 
 lists-no-pro7: 
 	/usr/bin/time -v ./list-no-pro 7 +RTS -N1 -RTS

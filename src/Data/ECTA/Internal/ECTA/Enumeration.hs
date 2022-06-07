@@ -481,12 +481,13 @@ enumerateOutFirstExpandableUVar = do
     ExpansionStuck   -> mzero
 
 enumerateFully :: EnumerateM ()
-enumerateFully  =  const () <$> enumerateFully' False (\ _ _ -> return False)
+enumerateFully  =  const () <$> enumerateFully' () False (\ x _ _ -> return (False, x))
 
-enumerateFully' :: Bool
-                -> (UVar -> Either TermFragment Node -> EnumerateM Bool)
+enumerateFully' :: forall a. a
+                -> Bool
+                -> (a -> UVar -> Either TermFragment Node -> EnumerateM (Bool, a))
                 -> EnumerateM Bool
-enumerateFully' eager_suspend oracle = do
+enumerateFully' ost eager_suspend oracle = do
   muv <- if eager_suspend
         then do hints <- IntMap.keysSet <$> getPruneDeps
                 if IntSet.null hints
@@ -509,16 +510,16 @@ enumerateFully' eager_suspend oracle = do
    ExpansionStuck   -> mzero
    ExpansionDone    -> return True
    ExpansionNext uv ->
-    let continue = do
+    let continue ost' = do
           tf <- enumerateOutUVar' eager_suspend uv
-          spr <- oracle uv (Left tf)
-          if spr then mzero
-          else enumerateFully' eager_suspend oracle
+          (should_prune, ost'') <- oracle ost' uv (Left tf)
+          if should_prune then mzero
+          else enumerateFully' ost'' eager_suspend oracle
     in do UVarUnenumerated (Just n) scs <- getUVarValue uv
           case n of 
             Mu _ | scs == Sequence.empty -> return True
-            _ -> do should_prune <- oracle uv (Right n)
-                    if should_prune then mzero else continue 
+            _ -> do (should_prune, ost') <- oracle ost uv (Right n)
+                    if should_prune then mzero else continue ost'
 
 
 
@@ -562,17 +563,17 @@ getAllTruncatedTerms n = map (termFragToTruncatedTerm . fst) $
                            enumerateFully
                            getTermFragForUVar (intToUVar 0)
 
-getAllTermsPrune :: (UVar -> Either TermFragment Node -> EnumerateM Bool)
+getAllTermsPrune :: forall a. a -> (a -> UVar -> Either TermFragment Node -> EnumerateM (Bool,a))
                  -> Node -> [Term]
-getAllTermsPrune oracle n =
-    map fst $ flip runEnumerateM (initEnumerationState n) $ enumPrune oracle
+getAllTermsPrune ost oracle n =
+    map fst $ flip runEnumerateM (initEnumerationState n) $ enumPrune ost oracle
 
-enumPrune :: (UVar -> Either TermFragment Node -> EnumerateM Bool) -> EnumerateM Term
-enumPrune oracle = do finished <- enumerateFully' True oracle
-                      if finished then expandUVar (intToUVar 0) else mzero
+enumPrune :: forall a. a -> (a -> UVar -> Either TermFragment Node -> EnumerateM (Bool,a)) -> EnumerateM Term
+enumPrune a oracle = do finished <- enumerateFully' a True oracle
+                        if finished then expandUVar (intToUVar 0) else mzero
 
 getAllTerms :: Node -> [Term]
-getAllTerms = getAllTermsPrune (\ _ _ -> return False)
+getAllTerms = getAllTermsPrune () (\ _ _ _ -> return (False,()))
 
 
 -- | Inefficient enumeration
