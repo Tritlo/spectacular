@@ -466,7 +466,7 @@ tacularSpec' size phase extraReps sigs =
                     putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
                     when (pn < phase) $ do
                         putStrLn $ "Starting mono-polymorphic phase...."
-                        let stecta@StEcta{..} = mkStecta sig id (generalizeType . monomorphiseType)
+                        let stecta@StEcta{..} = mkStecta sig monomorphiseType (generalizeType . monomorphiseType)
                         go' GoState{ cur_lvl = 0,
                                     phase_number = 3,
                                     lvl_nums= [1..cur_lvl],
