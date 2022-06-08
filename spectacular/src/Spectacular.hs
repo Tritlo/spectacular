@@ -88,7 +88,8 @@ data StEcta = StEcta { scope_comps  :: Comps,
                       eq_insts      :: Map TypeSkeleton (T.Text, Dynamic),
                       arb_insts     :: Map TypeSkeleton (T.Text, Func),
                       sig_ty_cons   :: [TypeSkeleton],
-                      compl_sig     :: Sig
+                      compl_sig     :: Sig,
+                      given_sig     :: Sig
                       } deriving (Show)
 
 
@@ -376,6 +377,7 @@ tacularSpec' size phase extraReps sigs =
            mkStecta sig givenTrans skelTrans =
                     StEcta { scope_comps = sc, any_arg = ag,
                              compl_sig = compl_sig,
+                             given_sig = givenSig,
                              sig_ty_cons = Map.keys eq_insts,
                              eq_insts = eq_insts,
                              arb_insts = arbs }
@@ -514,17 +516,18 @@ tacularSpec' size phase extraReps sigs =
                     nextNode = union $ mtk scope_comps any_arg False cur_lvl
 
                 refreshCount "Reducing  ECTA" (" for " ++ show tc) "" cur_lvl so_far
-                let max_rounds = 50
+                let max_rounds = 100
                     !ecta = filterType nextNode $ typeToFta tc
                 (!reduced, tries) <- reduceFullyAndLog' max_rounds ecta
-                refreshCount "refolding ecta" (" for " ++ show tc) "" cur_lvl so_far
-                    
-                !folded <- return $ if tries < max_rounds
-                                    then refold reduced
-                                    else unfoldBounded max_rounds reduced
+                refreshCount "Refolding ecta" (" for " ++ show tc) "" cur_lvl so_far
+
+                !folded <- return $ refold reduced
 
                 let o = oracle $ partition hasTemplate rewrite_terms 
                 let terms = getAllTermsPrune (cur_lvl, tc) o folded
+                -- We want to display a message once the first term is found.
+                -- in particular, it hangs after this messages for HugeLists 6
+                refreshCount "Finding first term " (" for " ++ show tc) "" cur_lvl so_far
                 case terms of
                     (t:_) -> refreshCount "Folded, exploring " (" for " ++ show tc) "" cur_lvl so_far
                     _ -> return ()
@@ -539,7 +542,11 @@ tacularSpec' size phase extraReps sigs =
                     go' (GoState{current_terms = terms,
                                 unique_terms = Map.insert current_ty (HS.singleton np_term) unique_terms,
                                 ..})
+                 -- if we've seen it before, we can immediately skip.
                  | (hash np_term) `IntSet.member` seen = skip seen
+                 -- We don't want terms that are all variables.
+                 | termSize np_term > 1,
+                    allFromSig given_sig np_term = skip (seen <> IntSet.singleton (hash np_term))
                  | otherwise = do
                     let other_terms = HS.toList $ unique_terms Map.! current_ty
                         terms_to_test = map termToTest other_terms
@@ -724,6 +731,14 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
         parIfReq s@(c:_) | c /= '(', c /= '[', not (isAlphaNum c) = "("<>s<>")"
         parIfReq s = s
 
+allFromSig sig (Term "app" [_,f,v]) = allFromSig sig f && allFromSig sig v
+allFromSig sig (Term (Symbol t) _) = t `Map.member` sig
+
+-- isVar :: Sig -> T.Text -> Bool
+-- isVar sig t = case sig Map.!? t of
+--                 Just (GivenFun (GivenVar _ _ _) _) -> True
+--                 _ -> False
+     
 refreshCount :: String -> String -> String -> Int -> Int -> IO ()
 -- refreshCount _ _ _ _ _ = return ()
 refreshCount pre mid post size i = putStr (o ++ fill ++ "\r") >> flushStdHandles
