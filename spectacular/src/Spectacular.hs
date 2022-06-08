@@ -296,29 +296,39 @@ termSize (Term s args) = 1 + sum (map termSize args)
 
 -- TODO: we're maybe calling getUVarValue too often here.
 oracle :: ([Term],[Term])
-            -> IntSet
+            -> (Int, TypeSkeleton)
             -> UVar
             -> Either TermFragment Node
-            -> EnumerateM (Bool,IntSet)
-oracle (templs,rws) st uv (Left tf) = do
+            -> EnumerateM (Bool,(Int,TypeSkeleton))
+oracle (templs,rws) st@(lvl,TCons tsk _) uv (Left tf) = do
     deps <- getPruneDeps
     -- traceShowM (uv, tf)
     -- traceShowM deps
-    -- tv <- getUVarValue (intToUVar 0)
-    -- case tv of
-    --     UVarEnumerated t -> expandPartialTermFrag t >>= traceShowM
-    --     _ -> return ()
-    if IM.null deps
-    then if (uv == intToUVar 0)
-         then {-# SCC "fresh-start" #-} (,st) <$> fragRepresents True tf (rws ++ templs)
-         else return (False,st) -- a type is being selected.
-    else case deps IM.!? (uvarToInt uv) of
-            Just rw' -> do deletePruneDep (uvarToInt uv)
-                           {-# SCC "resume" #-} (,st) <$> fragRepresents True tf rw'
-            _ -> return (False,st)
+    --traceShowM rws
+    -- when (lvl == 6 && tsk == "Int") $ do
+    --     tv <- getUVarValue (intToUVar 0)
+    --     case tv of
+    --         UVarEnumerated t -> expandPartialTermFrag t >>= (traceShowM . ppNpTerm . npTerm')
+    --         _ -> return ()
+    let st' = st
+    (,st') <$>
+        if IM.null deps
+        then if (uv == intToUVar 0)
+             then do res <- {-# SCC "fresh-start" #-} fragRepresents True tf (rws ++ templs)
+                     -- when res $ do UVarEnumerated tv <- getUVarValue (intToUVar 0)
+                     --               eptf <- expandPartialTermFrag tv
+                     --               traceShowM $ (ppNpTerm $ npTerm' eptf) ++ " pruned!"
+                     return res
+             else return False -- a type is being selected.
+        else case deps IM.!? (uvarToInt uv) of
+                Just rw' -> do -- mapM_ (traceShowM . ppNpTerm . npTerm') rw'
+                               -- traceShowM "unsuspending!"
+                               deletePruneDep (uvarToInt uv)
+                               {-# SCC "resume" #-} fragRepresents True tf rw'
+                _ -> return False
 -- TODO: this is too strong, it just throws everything away even if
 -- we wouldn't encounter that one.
-oracle (templs,rws) st uv (Right n) = do
+oracle (templs,rws) st uv (Right n) =
     (,st) <$> return (any (nodeRepresentsTemplate n) (templs ++ rws))
     -- let cf n = M.Any (any (nodeRepresentsTemplate n) $ templs)
     --     will_encounter =  M.getAny (crush (onNormalNodes cf) n)
@@ -504,30 +514,20 @@ tacularSpec' size phase extraReps sigs =
                     nextNode = union $ mtk scope_comps any_arg False cur_lvl
 
                 refreshCount "Reducing  ECTA" (" for " ++ show tc) "" cur_lvl so_far
-                let max_rounds = 10
-                    ecta = filterType nextNode $ typeToFta tc
-                    untilReduced :: Node -> Int -> Int -> IO (Node, Int)
-                    untilReduced n max_tries sf | sf > max_tries =
-                        do putStrLn "aborting!"
-                           return (n, max_tries)
-                    untilReduced n max_tries sf =
-                      do (r, nr) <- reduceFullyAndLog' max_rounds ecta
-                         if nr < max_rounds
-                         then return (r,sf)
-                         else do putStrLn "not reduced! retrying"
-                                 untilReduced r max_tries (sf +1)
-                (reduced, tries) <- untilReduced ecta 5 0
+                let max_rounds = 50
+                    !ecta = filterType nextNode $ typeToFta tc
+                (!reduced, tries) <- reduceFullyAndLog' max_rounds ecta
                 refreshCount "refolding ecta" (" for " ++ show tc) "" cur_lvl so_far
-
-                !folded <- return $ refold reduced
-                refreshCount "Folded, exploring " (" for " ++ show tc) "" cur_lvl so_far
+                    
+                !folded <- return $ if tries < max_rounds
+                                    then refold reduced
+                                    else unfoldBounded max_rounds reduced
 
                 let o = oracle $ partition hasTemplate rewrite_terms 
-                let terms = if tries < 5
-                            then getAllTermsPrune IntSet.empty o folded
-                            else let dbo st uv (Left tf) = traceShowM tf >> (o st uv (Left tf))
-                                     dbo st uv (Right n) = traceShowM uv >> (o st uv (Right n))
-                                 in getAllTermsPrune IntSet.empty o folded
+                let terms = getAllTermsPrune (cur_lvl, tc) o folded
+                case terms of
+                    (t:_) -> refreshCount "Folded, exploring " (" for " ++ show tc) "" cur_lvl so_far
+                    _ -> return ()
 
                 go' GoState{ current_terms=terms,..}
                go' GoState{law_nums = law_nums@(n:ns),
@@ -540,8 +540,6 @@ tacularSpec' size phase extraReps sigs =
                                 unique_terms = Map.insert current_ty (HS.singleton np_term) unique_terms,
                                 ..})
                  | (hash np_term) `IntSet.member` seen = skip seen
-                 | hasSmallerRewrite rwrts' np_term = skip (IntSet.insert (hash np_term) seen)
-                 | hasAnySub rwrts' np_term = skip (IntSet.insert (hash np_term) seen)
                  | otherwise = do
                     let other_terms = HS.toList $ unique_terms Map.! current_ty
                         terms_to_test = map termToTest other_terms

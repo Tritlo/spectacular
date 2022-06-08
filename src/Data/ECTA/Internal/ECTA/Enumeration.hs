@@ -27,8 +27,8 @@ module Data.ECTA.Internal.ECTA.Enumeration (
   , getTermFragForUVar
   , runEnumerateM
 
+  , getPruneDepsOf
   , getPruneDeps
-  , getPruneDep
   , addPruneDep
   , deletePruneDep
   , fragRepresents
@@ -52,7 +52,7 @@ module Data.ECTA.Internal.ECTA.Enumeration (
   ) where
 
 import qualified Data.Text as T
-import Control.Monad ( forM_, guard, unless )
+import Control.Monad ( forM_, guard, unless, when, filterM )
 import Control.Monad.State.Strict ( StateT(..) )
 import qualified Data.IntMap as IntMap
 import Data.Maybe ( fromMaybe, isJust, mapMaybe )
@@ -78,6 +78,7 @@ import qualified Data.Persistent.UnionFind as UnionFind
 import Data.Text.Extended.Pretty
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
+import Debug.Trace
 
 -------------------------------------------------------------------------------
 
@@ -184,20 +185,23 @@ runEnumerateM = runStateT
 getPruneDeps :: EnumerateM (IntMap.IntMap [Term])
 getPruneDeps = use pruneDeps
 
-getPruneDep :: Int -> EnumerateM (Maybe [Term])
-getPruneDep uv = do pd <- use pruneDeps
-                    return (pd IntMap.!? uv)
+getPruneDepsOf :: Int -> EnumerateM (Maybe [Term])
+getPruneDepsOf uv = do pd <- use pruneDeps
+                       return (pd IntMap.!? uv)
 
-addPruneDep :: Int -> [Term] -> EnumerateM ()
-addPruneDep uv rws = pruneDeps %= IntMap.insert uv rws
+addPruneDep :: Int -> Term -> EnumerateM ()
+addPruneDep uv rw = pruneDeps %= IntMap.adjust (rw:) uv
+
+addPruneDeps :: Int -> [Term] -> EnumerateM ()
+addPruneDeps uv rws = pruneDeps %= IntMap.adjust (rws ++) uv
 
 deletePruneDep :: Int -> EnumerateM ()
 deletePruneDep uv = pruneDeps %= (IntMap.delete uv)
 
 changePruneDep :: Int -> Int -> EnumerateM ()
-changePruneDep src trg = do pd <- getPruneDep src
+changePruneDep src trg = do pd <- getPruneDepsOf src
                             case pd of
-                              Just ts -> deletePruneDep src >> addPruneDep trg ts
+                              Just ts -> deletePruneDep src >> addPruneDeps trg ts
                               _ -> return ()
 
 ---------------------
@@ -336,7 +340,14 @@ enumerateEdge' eager_suspend scs e = do
 
   newScs <- Sequence.fromList <$> mapM pecToSuspendedConstraint (unsafeGetEclasses $ edgeEcs e)
   let scs' = scs <> newScs
-  TermFragmentNode (edgeSymbol e) <$> imapM (\i n -> enumerateNode' eager_suspend (descendScs i scs') n) (edgeChildren e)
+      enumIt i n = enumerateNode' eager_suspend (descendScs i scs') n
+      suspendIt i n = suspendNode (descendScs i scs') n
+      -- Note: we would like to eagerly suspend here to catch things like 
+      -- "reverse reverse" even before it forms. But it seems to fail
+      -- right away and no output... strange. TODO: fix
+      -- nextFun = if eager_suspend then suspendIt else enumIt
+      nextFun = enumIt
+  TermFragmentNode (edgeSymbol e) <$> imapM nextFun (edgeChildren e)
                                
 
 
@@ -397,55 +408,56 @@ lastExpandableUVar = do
                 Just (i, _) -> return $ ExpansionNext $ intToUVar i
 
 
+ruleMatches :: Bool -> TermFragment -> Term -> EnumerateM Bool
+-- TODO: this should match types
+ruleMatches susOk _ (Term (Symbol "<v>") _) = return True
+ruleMatches susOk (TermFragmentNode "app" [tf_ret_ty,tf_fun_ty,tf_f,tf_v])
+                  (Term             "app" [rw_ret_ty,rw_fun_ty,rw_f,rw_v]) = do
+    rw_f_m <- ruleMatches susOk tf_f rw_f
+    if not rw_f_m then return False
+    else ruleMatches susOk tf_v rw_v
+ruleMatches susOk (TermFragmentNode ts [tf_ty])
+                  (Term             rws [rw_ty]) = return (ts == rws)
+                  
+ruleMatches susOk (TermFragmentUVar uv) rw =
+    do val <- getUVarValue uv
+       case val of
+           UVarEnumerated t -> ruleMatches susOk t rw
+           _ -> return False -- do when susOk (addPruneDep (uvarToInt uv) rw)
+                   -- return False
+ruleMatches _ _ _ = return False
 
 fragRepresents :: Bool -> TermFragment -> [Term] -> EnumerateM Bool
 fragRepresents susOk (TermFragmentNode "filter" [_,t]) rwrs = fragRepresents susOk t rwrs
-fragRepresents susOk (TermFragmentNode "app" [_,_,f,v]) rwrs =
-    fragRepresents susOk (TermFragmentNode "app" [f,v]) rwrs
-fragRepresents susOk (TermFragmentNode s [_]) rwrs =
-    fragRepresents susOk (TermFragmentNode s []) rwrs
+fragRepresents susOk tf@(TermFragmentNode "app" [_,_,f,v]) rwrs = do
+    -- traceShowM ("frpappf", f)
+    -- traceShowM ("frpappv", v)
+    -- traceShowM ("frpapprw", rwrs)
+    tf_m <- filterM (ruleMatches susOk tf) rwrs
+    -- traceShowM ("frpapptfm", tf_m)
+    if not (null tf_m) then return True
+    else do r <- or <$> mapM (flip (fragRepresents False) rwrs) [f,v]
+            -- traceShowM ("frpappr", r)
+            return r
+fragRepresents susOk tf@(TermFragmentNode s [_]) rwrs = do
+    -- traceShowM ("frps", s)
+    -- traceShowM ("frpsrw", rwrs)
+    tf_m <- filterM (ruleMatches susOk tf) rwrs
+    -- traceShowM ("frpstfm", tf_m)
+    if not (null tf_m) then return True
+    else return False
+fragRepresents susOk tf@(TermFragmentUVar uv) rwrs =
+    do uv_m <- filterM (ruleMatches susOk tf) rwrs
+       if not (null uv_m) then return True
+       else do val <- getUVarValue uv
+               case val of
+                 UVarEnumerated t -> fragRepresents susOk t rwrs
+                 _ -> return False -- do when susOk (addPruneDeps (uvarToInt uv) rwrs)
+                         -- return False
+fragRepresents _ tf _ = error $ "unrecognized frag! " ++ show tf
 
-fragRepresents susOk (TermFragmentNode s@(Symbol sym) ts) rwrs = do
-    matches <- checkChildren ts
-    if matches then return True
-    else checkSelf $ map snd $
-           filter ((\sym@(Symbol v) -> sym == s || "<v" `T.isPrefixOf` v) . fst)
-                            (map unTerm rwrs)
-    where unTerm (Term "filter" [_,t]) = unTerm t
-          unTerm (Term "app" [_, _, f,v]) = ("app", [f,v])
-          unTerm (Term s [_]) = (s, [])
+    
 
-          checkSelf :: [[Term]] -> EnumerateM Bool
-          checkSelf [] = return False
-          checkSelf (subrw:subrws) = 
-            do res <- checkAll toCheck
-               if not res then return False
-               else checkSelf subrws
-            where toCheck = zipWith (\ t srw -> (t,[srw])) ts subrw
-                  checkAll :: [(TermFragment, [Term])] 
-                           -> EnumerateM Bool
-                  checkAll [] = return True
-                  checkAll ((t,rw):rws) = do
-                    res <- fragRepresents False t rw
-                    if not res then return False
-                    else checkAll rws
-            
-          checkChildren :: [TermFragment] -> EnumerateM Bool
-          checkChildren [] = return False
-          checkChildren (tf:tfs) =
-            do res <- fragRepresents susOk tf rwrs
-               if res then return True
-               else checkChildren tfs
--- TODO: We suspsend the single pruneDep here, when it is OK, but
--- we'd like to say "suspend all of these".
-fragRepresents susOk (TermFragmentUVar uv) rwrs =
-    do val <- getUVarValue uv
-       case val of
-           UVarEnumerated t -> fragRepresents susOk t rwrs
-           _ -> if anyIsTemplate rwrs
-                then return True
-                else if susOk then const False <$> addPruneDep (uvarToInt uv) rwrs
-                     else return False
 
 anyIsTemplate :: [Term] -> Bool
 anyIsTemplate = any (\(Term (Symbol s) _) -> T.isPrefixOf "<v" s)
@@ -461,7 +473,7 @@ enumerateOutUVar' eager_suspend uv =
 
 
        uvarValues.(ix $ uvarToInt uv') .= UVarEnumerated t
-       pd <- getPruneDep (uvarToInt uv)
+       pd <- getPruneDepsOf (uvarToInt uv)
        case pd of
           Just rws -> do deletePruneDep (uvarToInt uv)
                          res <- fragRepresents True t rws
