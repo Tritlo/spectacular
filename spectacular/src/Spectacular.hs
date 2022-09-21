@@ -43,7 +43,7 @@ import Data.ECTA.Internal.ECTA.Enumeration
 import Data.Persistent.UnionFind ( uvarToInt, intToUVar, UVar )
 import Data.List hiding (union)
 import qualified Test.QuickCheck as QC
-import Control.Monad (zipWithM_, filterM, when, mzero)
+import Control.Monad (zipWithM_, filterM, when, mzero, void)
 import qualified Data.Text as T
 import qualified Data.Set as Set
 import qualified System.Environment as Env
@@ -369,9 +369,10 @@ tacularSpec sigs =
        let phase = case args of
                     _:arg:_ | Just n <- TR.readMaybe arg -> n
                     _ -> 3 -- Set to 6 to save time on the flight xD:w
-       tacularSpec' size phase (const Nothing) sigs
+       _ <- tacularSpec' size phase (const Nothing) sigs
+       return ()
 
-tacularSpec' :: Int -> Int -> (TypeSkeleton -> (Maybe GeneratedInstance)) -> [Sig] -> IO ()
+tacularSpec' :: Int -> Int -> (TypeSkeleton -> (Maybe GeneratedInstance)) -> [Sig] -> IO [String]
 tacularSpec' size phase extraReps sigs =
     do let sig = mconcat sigs
            mkStecta sig givenTrans skelTrans =
@@ -440,7 +441,7 @@ tacularSpec' size phase extraReps sigs =
                                   QC.maxSuccess = 100}
 
            -- TODO: add e-graphs and rewrites.
-           go :: Int -> Int -> IO ()
+           go :: Int -> Int -> IO [String]
            go n phase  =
                   do rwrts <- initRewrites
                      let stecta@StEcta{..} = mkStecta sig monomorphiseType monomorphiseType
@@ -458,13 +459,14 @@ tacularSpec' size phase extraReps sigs =
                                   ty_cons_to_check = sig_ty_cons
                                   }
              where
-               go' :: GoState -> IO ()
+               go' :: GoState -> IO [String]
                go' (GoState{ lvl_nums = [],
                              phase_number = pn@(1),
                             current_terms = [] , ..}) = do
                     putStrLn $ "Fully monomorphic phase finished.." ++ show so_far ++ " terms examined."
                     putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
-                    when (pn < phase) $ do
+                    if (pn < phase) 
+                    then do
                         putStrLn $ "Starting phase with more types...."
                         let stecta@StEcta{..} = mkStecta sig id id
                         go' GoState{ cur_lvl = 0,
@@ -472,12 +474,14 @@ tacularSpec' size phase extraReps sigs =
                                     lvl_nums= [1..cur_lvl],
                                     ty_cons_to_check = sig_ty_cons,
                                     current_terms=[],..}
+                    else return []
                go' (GoState{ lvl_nums = [],
                              phase_number = pn@(2),
                             current_terms = [] , ..}) = do
                     putStrLn $ "Monomorphic phases finished.." ++ show so_far ++ " terms examined."
                     putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
-                    when (pn < phase) $ do
+                    if (pn < phase) 
+                    then do
                         putStrLn $ "Starting mono-polymorphic phase...."
                         let stecta@StEcta{..} = mkStecta sig monomorphiseType (generalizeType . monomorphiseType)
                         go' GoState{ cur_lvl = 0,
@@ -485,23 +489,27 @@ tacularSpec' size phase extraReps sigs =
                                     lvl_nums= [1..cur_lvl],
                                     ty_cons_to_check = sig_ty_cons,
                                     current_terms=[],..}
+                    else return []
                go' (GoState{ lvl_nums = [],
                              phase_number = pn@(3),
                             current_terms = [] , ..}) = do
-                 putStrLn $ "Mono-polymorphic phase done! " ++ show so_far ++ " terms examined."
-                 putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
-                 when (pn < phase) $ do
-                     let stecta@StEcta{..} = mkStecta sig id generalizeType
-                     putStrLn $ "Starting fully-polymorphic phase...."
-                     go' GoState{ cur_lvl = 0,
-                                 phase_number = 4,
-                                 lvl_nums= [1..cur_lvl],
-                                 ty_cons_to_check = sig_ty_cons,
-                                 current_terms=[],..}
+                    putStrLn $ "Mono-polymorphic phase done! " ++ show so_far ++ " terms examined."
+                    putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
+                    if (pn < phase) 
+                    then do
+                        let stecta@StEcta{..} = mkStecta sig id generalizeType
+                        putStrLn $ "Starting fully-polymorphic phase...."
+                        go' GoState{ cur_lvl = 0,
+                                    phase_number = 4,
+                                    lvl_nums= [1..cur_lvl],
+                                    ty_cons_to_check = sig_ty_cons,
+                                    current_terms=[],..}
+                    else return []
                go' (GoState{ lvl_nums = [],
                             current_terms = [] , ..}) = do
                  putStrLn $ "Done! " ++ show so_far ++ " terms examined."
                  putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
+                 return []
                go' GoState {stecta=stecta@StEcta{..},
                             ty_cons_to_check = [],
                             lvl_nums = (lvl_num:lvl_nums),
@@ -523,7 +531,7 @@ tacularSpec' size phase extraReps sigs =
 
                 !folded <- return $ refold reduced
 
-                let o = oracle $ partition hasTemplate rewrite_terms 
+                let o = oracle $ partition hasTemplate rewrite_terms
                 let terms = getAllTermsPrune (cur_lvl, tc) o folded
                 -- We want to display a message once the first term is found.
                 -- in particular, it hangs after this messages for HugeLists 6
@@ -662,7 +670,8 @@ tacularSpec' size phase extraReps sigs =
                                 new_rws = (new_rw:rewrite_terms)
                                 -- we've learned a new rewrite, so we restart the
                                 -- machine with a new oracle function.
-                            go' GoState {
+                            (law_str:) <$>
+                               go' GoState {
                                     seen = seen <> IntSet.singleton (hash np_term),
                                     so_far=sf',
                                     rwrts = rwrts'',
@@ -738,7 +747,7 @@ allFromSig sig (Term (Symbol t) _) = t `Map.member` sig
 -- isVar sig t = case sig Map.!? t of
 --                 Just (GivenFun (GivenVar _ _ _) _) -> True
 --                 _ -> False
-     
+
 refreshCount :: String -> String -> String -> Int -> Int -> IO ()
 -- refreshCount _ _ _ _ _ = return ()
 refreshCount pre mid post size i = putStr (o ++ fill ++ "\r") >> flushStdHandles

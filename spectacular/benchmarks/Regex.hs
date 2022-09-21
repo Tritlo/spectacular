@@ -14,6 +14,7 @@ import Test.QuickCheck.Random
 import Test.QuickCheck.Gen
 import Data.Ord
 import Data.Monoid
+import System.Environment (getArgs)
 
 data Sym = SA | SB deriving (Eq, Ord, Typeable, Show)
 
@@ -119,11 +120,15 @@ extraReps _ = Nothing
 --   monoType (Proxy :: Proxy (Regex Sym)),
 --   monoType (Proxy :: Proxy Sym) ]
 
-main = tacularSpec' 7 3 extraReps [
-  con "char" (Char :: Sym -> Regex Sym),
-  con "any" (AnyChar :: Regex Sym),
-  con "e" (Epsilon :: Regex Sym),
-  con "0" (Zero :: Regex Sym),
-  con ";" (Concat :: Regex Sym -> Regex Sym -> Regex Sym),
-  con "|" (Choice :: Regex Sym -> Regex Sym -> Regex Sym),
-  con "*" (star :: Regex Sym -> Regex Sym)]
+main = do
+  [s,p] <- map read <$> getArgs
+  res <- tacularSpec' s p extraReps [
+    con "char" (Char :: Sym -> Regex Sym),
+    con "any" (AnyChar :: Regex Sym),
+    con "e" (Epsilon :: Regex Sym),
+    con "0" (Zero :: Regex Sym),
+    con ";" (Concat :: Regex Sym -> Regex Sym -> Regex Sym),
+    con "|" (Choice :: Regex Sym -> Regex Sym -> Regex Sym),
+    con "*" (star :: Regex Sym -> Regex Sym)]
+  mapM print res
+  print (length res)

@@ -11,6 +11,8 @@ import qualified Data.Map as Map
 import Control.Monad
 import Data.Proxy
 
+import System.Environment (getArgs)
+
 newtype SmallRational = SmallRational Rational
   deriving (Eq, Ord, Num, Typeable, Fractional, Conj, CoArbitrary, Show)
 instance Arbitrary SmallRational where
@@ -56,7 +58,12 @@ instance Arbitrary It where
 extraReps (TCons "It" []) = Just $ genRepFromProxy (Proxy :: Proxy It)
 extraReps _ = Nothing
 
-main = tacularSpec' 7 3 extraReps [
-  con "*" ((*) :: It -> It -> It),
-  (con "inv" (recip :: It -> It)),
-  con "1" (1 :: It)]
+main = do
+  [s,p] <- map read <$> getArgs
+  --tacularSpec' 7 3 extraReps [
+  res <- tacularSpec' s p extraReps [
+    con "*" ((*) :: It -> It -> It),
+    (con "inv" (recip :: It -> It)),
+    con "1" (1 :: It)]
+  mapM print res
+  print (length res)

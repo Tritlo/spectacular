@@ -9,3 +9,5 @@ dist-newstyle/
 log
 *.log
 *.pdf
+**/*.o
+**/*.hi
