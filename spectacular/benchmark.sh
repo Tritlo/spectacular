@@ -7,17 +7,20 @@ for bench in Lists Octonions Regex ListMonad HugeLists; do
     BRES=$(cabal build && cabal exec -- ghc benchmarks/$bench.hs -O2 -o $bench)
 done
 
+# We timeout after 1 hour.
+TIMEOUT=3600
+
 for p in {2..4}; do
     echo "Timing phase $p..."
     for bench in Lists Octonions Regex ListMonad; do
-        RES=$(/usr/bin/time --output=timed --format="$FORMAT" ./$bench 7 $p $RTS | tail -n 1)
+        RES=$(/usr/bin/time --output=timed --format="$FORMAT" timeout $TIMEOUT ./$bench 7 $p $RTS | tail -n 1)
         TIMERES=$(cat timed)
         echo "$TIMERES $RES"
     done
     # HugeLists 7 3 runs out of memory and swap after 4 hours 6 minutes
     # HugeLists 6 4 runs for >18.5 hours 
-    for s in 3 4 5;  do
-        RES=$(/usr/bin/time --output=timed --format="$FORMAT" ./HugeLists $s $p $RTS | tail -n 1)
+    for s in 3 4 5 6 7;  do
+        RES=$(/usr/bin/time --output=timed --format="$FORMAT" timeout $TIMEOUT ./HugeLists $s $p $RTS | tail -n 1)
         TIMERES=$(cat timed)
         echo "$TIMERES $RES"
     done
