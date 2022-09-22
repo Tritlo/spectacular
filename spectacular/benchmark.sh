@@ -14,7 +14,9 @@ for p in {2..4}; do
         TIMERES=$(cat timed)
         echo "$TIMERES $RES"
     done
-    for s in 3 4 5 6 7; do
+    # HugeLists 7 3 runs out of memory and swap after 4 hours 6 minutes
+    # HugeLists 6 4 runs for >18.5 hours 
+    for s in 3 4 5;  do
         RES=$(/usr/bin/time --output=timed --format="$FORMAT" ./HugeLists $s $p $RTS | tail -n 1)
         TIMERES=$(cat timed)
         echo "$TIMERES $RES"
