@@ -3,14 +3,10 @@
              OverloadedStrings #-}
 import Data.List
 import Control.Monad
+import QuickSpec.Internal.Utils (usort)
 
 import Spectacular
 
-usort :: [Int] -> [Int]
-usort [] = []
-usort (a:as) = usort (filter (<= a) as) 
-            ++ [a]
-            ++ usort (filter (> a) as)
 
 main = tacularSpec [
   con "length" (length :: [A] -> Int),
