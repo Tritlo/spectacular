@@ -100,7 +100,7 @@ sigGivens typeMod sigs extraReps = (--eqDef <>
         cons t@(TFun arg ret) = Set.singleton t <> cons arg <> cons ret
         cons (TVar _) = Set.empty
         addLi :: TypeSkeleton -> [TypeSkeleton]
-        addLi t = t:(addLi' 0 t) -- bump this to get more [A], [[A]],
+        addLi t = t:(addLi' 1 t) -- bump this to get more [A], [[A]],
                                  -- [[[A]]], etc.
           where addLi' :: Int -> TypeSkeleton -> [TypeSkeleton]
                 addLi' 0 _ = []
