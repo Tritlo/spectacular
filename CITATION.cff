@@ -1,0 +1,14 @@
+@software{matthias_pall_gissurarson_2023_7565003,
+  author       = {Matthías Páll Gissurarson and
+                  Jimmy Koppel and
+                  Edsko de Vries and
+                  Zheng Guo and
+                  Diego Alonso Roque Montoya},
+  title        = {Tritlo/spectacular: ICST 2023},
+  month        = jan,
+  year         = 2023,
+  publisher    = {Zenodo},
+  version      = {icst-2023-zenodo},
+  doi          = {10.5281/zenodo.7565003},
+  url          = {https://doi.org/10.5281/zenodo.7565003}
+}
