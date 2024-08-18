@@ -22,7 +22,7 @@ common deps
                  containers,
                  compact-coupled-terms,
                  time,
-                 QuickCheck,
+                 QuickCheck >= 2.14 && < 2.15,
                  async,
                  hashable,
                  unordered-containers,
