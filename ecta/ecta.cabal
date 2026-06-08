@@ -1,0 +1,191 @@
+cabal-version: 3.0
+name: ecta
+version: 0.1.0.0
+synopsis: Equality-constrained tree automata
+description:
+  An implementation of equality-constrained tree automata (ECTAs) together
+  with the term-search application built on top of them.
+homepage: https://github.com/githubuser/compact-coupled-terms#readme
+bug-reports: https://github.com/githubuser/compact-coupled-terms/issues
+author: Author name here
+maintainer: example@example.com
+copyright: 2021 Author name here
+license: BSD-3-Clause
+license-file: LICENSE
+build-type: Simple
+extra-source-files:
+  ChangeLog.md
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/compact-coupled-terms
+
+flag profile-caches
+  manual: True
+  default: False
+
+common extensions
+  default-language: Haskell2010
+  default-extensions:
+    BangPatterns
+    ConstraintKinds
+    DataKinds
+    DefaultSignatures
+    DeriveDataTypeable
+    DeriveGeneric
+    EmptyDataDecls
+    ExistentialQuantification
+    FlexibleContexts
+    FlexibleInstances
+    FunctionalDependencies
+    GADTs
+    GeneralizedNewtypeDeriving
+    KindSignatures
+    LambdaCase
+    MultiParamTypeClasses
+    NamedFieldPuns
+    PatternGuards
+    PatternSynonyms
+    RankNTypes
+    ScopedTypeVariables
+    StandaloneDeriving
+    TupleSections
+    TypeApplications
+    TypeFamilies
+    TypeOperators
+    ViewPatterns
+  if flag(profile-caches)
+    cpp-options: -D PROFILE_CACHES
+
+library
+  import: extensions
+  hs-source-dirs: src
+  exposed-modules:
+    Application.EqualitySaturation
+    Application.SAT
+    Application.TermSearch.Dataset
+    Application.TermSearch.Evaluation
+    Application.TermSearch.TermSearch
+    Application.TermSearch.Type
+    Application.TermSearch.Utils
+    Data.ECTA
+    Data.ECTA.Internal.ECTA.Enumeration
+    Data.ECTA.Internal.ECTA.Operations
+    Data.ECTA.Internal.ECTA.Type
+    Data.ECTA.Internal.ECTA.Visualization
+    Data.ECTA.Internal.Paths
+    Data.ECTA.Internal.Paths.Zipper
+    Data.ECTA.Internal.Term
+    Data.ECTA.Paths
+    Data.ECTA.Term
+    Data.HashTable.Extended
+    Data.Interned.Extended.HashTableBased
+    Data.Interned.Extended.SingleThreaded
+    Data.Memoization
+    Data.Memoization.Metrics
+    Data.Persistent.UnionFind
+    Data.Text.Extended.Pretty
+    Utility.Fixpoint
+    Utility.HashJoin
+  ghc-options: -Wall
+  build-depends:
+      array
+    , base
+    , cmdargs
+    , containers
+    , equivalence
+    , extra
+    , fgl
+    , hashable
+    , hashtables
+    , ilist
+    , intern
+    , language-dot
+    , lens
+    , mtl
+    , pipes
+    , pretty-simple
+    , raw-strings-qq
+    , text
+    , time
+    , unordered-containers
+    , vector
+    , vector-instances
+
+executable ecta-exe
+  import: extensions
+  main-is: Main.hs
+  hs-source-dirs: app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
+  build-depends:
+      base
+    , cmdargs
+    , containers
+    , ecta
+    , hashable
+    , language-dot
+    , mtl
+    , pipes
+    , pretty-simple
+    , text
+    , time
+    , unordered-containers
+    , vector
+
+test-suite unit-tests
+  import: extensions
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  hs-source-dirs: test
+  other-modules:
+    CacheProfilingSpec
+    Data.Persistent.UnionFindSpec
+    ECTASpec
+    PathsSpec
+    SATSpec
+    Test.Generators.ECTA
+    Utility.HashJoinSpec
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Wno-orphans
+  build-depends:
+      QuickCheck
+    , base
+    , cmdargs
+    , containers
+    , ecta
+    , equivalence
+    , hashable
+    , hspec
+    , language-dot
+    , mtl
+    , pipes
+    , pretty-simple
+    , text
+    , time
+    , unordered-containers
+    , vector
+  build-tool-depends:
+    hspec-discover:hspec-discover
+
+benchmark mainbench
+  import: extensions
+  type: exitcode-stdio-1.0
+  main-is: Benchmarks.hs
+  hs-source-dirs: benchmarks
+  other-modules:
+    TestData
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -O2
+  build-depends:
+      base
+    , cmdargs
+    , containers
+    , criterion
+    , ecta
+    , hashable
+    , language-dot
+    , mtl
+    , pipes
+    , pretty-simple
+    , text
+    , time
+    , unordered-containers
+    , vector

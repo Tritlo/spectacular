@@ -1,0 +1,10 @@
+-- Optional compiler-plugin experiment. This is not part of the default
+-- project because it depends on the old GHC plugin API.
+packages: ecta/
+          Plugin/
+          TestPlugin/
+
+source-repository-package
+    type: git
+    location: https://github.com/jkoppel/equivalence.git
+    tag: e58c9c0b369f9b8105744cc0342f2e69929b11bf

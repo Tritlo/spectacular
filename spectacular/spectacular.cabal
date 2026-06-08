@@ -20,7 +20,7 @@ common deps
                  ghc > 8.10 && < 9,
                  text,
                  containers,
-                 compact-coupled-terms,
+                 ecta,
                  time,
                  QuickCheck >= 2.14 && < 2.15,
                  async,

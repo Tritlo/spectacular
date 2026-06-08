@@ -21,7 +21,7 @@ library
                  text,
                  containers,
                  language-dot,
-                 compact-coupled-terms
+                 ecta
   exposed-modules:
     CCTP.Plugin,
     CCTP.Utils

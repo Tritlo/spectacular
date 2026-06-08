@@ -1,6 +1,5 @@
-packages: ./
-          Plugin/
-          TestPlugin/
+packages: ecta/
+          spectacular/
 
 source-repository-package
     type: git
