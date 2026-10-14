@@ -386,16 +386,21 @@ tacularSpec' size phase extraReps sigs =
                             -- need only test once!
                             let nvs = 100
                                 qc_args' = qc_args {QC.maxSuccess = nvs}
-                            in quickCheckBoolOnly qc_args' $
+                            in testProperty qc_args' $
                                    dynProp $ termToGen eq_inst sig Map.empty t
-                        testAll :: Dynamic -> Sig -> [Term] -> IO (Maybe Term)
-                        testAll eq_inst sig [] = return Nothing
+                        -- Test the candidate against the representatives in
+                        -- turn. Return the first representative that it
+                        -- equals, and whether a test threw.
+                        testAll :: Dynamic -> Sig -> [Term] -> IO (Maybe Term, Bool)
+                        testAll eq_inst sig [] = return (Nothing, False)
                         testAll eq_inst sig (t:ts) =
                             do r <- runTest eq_inst sig t
-                               if r then return (Just t)
-                               else testAll eq_inst sig ts
-                        testAllPar :: Dynamic -> Sig -> [Term] -> IO (Maybe Term)
-                        testAllPar eq_inst sig [] = return Nothing
+                               case r of
+                                 TestPassed -> return (Just t, False)
+                                 TestFailed -> testAll eq_inst sig ts
+                                 Untestable -> (\(m, _) -> (m, True)) <$> testAll eq_inst sig ts
+                        testAllPar :: Dynamic -> Sig -> [Term] -> IO (Maybe Term, Bool)
+                        testAllPar eq_inst sig [] = return (Nothing, False)
                         testAllPar eq_inst sig terms =
                           do n <- CC.getNumCapabilities
                              if n == 1
@@ -403,23 +408,24 @@ tacularSpec' size phase extraReps sigs =
                              else if n >= length terms
                                   then testAllPar' [] $ map (:[]) terms
                                   else testAllPar' [] $ (chunks ((length terms) `div` n) terms)
-                          where firstSuccessful :: [CCA.Async (Maybe Term)]  -> IO (Maybe Term)
-                                firstSuccessful [] = return Nothing
-                                firstSuccessful as = do
-                                     do (a,r) <- CCA.waitAny as
+                          where firstSuccessful :: Bool -> [CCA.Async (Maybe Term, Bool)]
+                                                -> IO (Maybe Term, Bool)
+                                firstSuccessful u [] = return (Nothing, u)
+                                firstSuccessful u as = do
+                                     do (a,r@(m, u')) <- CCA.waitAny as
                                         let as' = filter (/= a) as
-                                        case r of
-                                            Just _ -> do mapM CCA.cancel as'
+                                        case m of
+                                            Just _ -> do mapM_ CCA.cancel as'
                                                          return r
-                                            _ -> firstSuccessful as'
-                                testAllPar' :: [CCA.Async (Maybe Term)]
-                                            -> [[Term]] -> IO (Maybe Term)
+                                            _ -> firstSuccessful (u || u') as'
+                                testAllPar' :: [CCA.Async (Maybe Term, Bool)]
+                                            -> [[Term]] -> IO (Maybe Term, Bool)
                                 -- if there's only one, no need for async
-                                testAllPar' [] [] = return Nothing
+                                testAllPar' [] [] = return (Nothing, False)
                                 testAllPar' [] [c] = testAll eq_inst sig c
                                 -- if we don't have any more chunks to start, we
                                 -- just finish it
-                                testAllPar' as [] = firstSuccessful as
+                                testAllPar' as [] = firstSuccessful False as
                                 -- otherwise, we have to start the work (and we check if we've finished anything so far)
                                 testAllPar' as (c:cs) =
                                     CCA.withAsync (testAll eq_inst sig c) $
@@ -432,23 +438,36 @@ tacularSpec' size phase extraReps sigs =
                                      ares <- CCA.wait aref
                                      -- if the first one is succesful, we don't care
                                      -- about the rest!
-                                     if ares then do CCA.cancel asref
-                                                     return (Just a)
-                                             else CCA.wait asref
+                                     if ares == TestPassed
+                                     then do CCA.cancel asref
+                                             return (Just a)
+                                     else CCA.wait asref
 
                     refreshCount ("exploring " ++ (show current_ty)) ""
                                  ("(" ++ (show $ length terms_to_test) ++ " to test...)") cur_lvl so_far
-                    holds <- testAllPar eq_inst compl_sig terms_to_test
+                    (holds, untestable) <- testAllPar eq_inst compl_sig terms_to_test
 
 
                     let sf' = so_far + 1
                     case holds of
                         Nothing -> do refreshCount ("exploring " ++ (show current_ty)) ""
                                                    "" cur_lvl sf'
+                                      -- A test threw. The candidate or a
+                                      -- representative caused it, so test
+                                      -- the candidate alone. A candidate
+                                      -- that we cannot test does not become
+                                      -- a representative.
+                                      testable <- if untestable
+                                                  then (== TestPassed) <$>
+                                                         testProperty qc_args
+                                                           (dynProp $ selfEqualityGen eq_inst compl_sig wip_rewritten)
+                                                  else return True
                                       go' GoState { so_far = sf',
                                                     current_terms = terms,
                                                     unique_terms =
-                                                      Map.adjust (HS.insert wip_rewritten) current_ty unique_terms,
+                                                      if testable
+                                                      then Map.adjust (HS.insert wip_rewritten) current_ty unique_terms
+                                                      else unique_terms,
                                                     ..}
 
                         -- These tests are expensive, so we only do them for laws that hold.

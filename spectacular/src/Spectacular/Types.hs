@@ -415,6 +415,14 @@ termToGen _ sig vv (Term (Symbol sym) _) = do
    Nothing -> error "not found!"
    
 
+-- | A generator of the property that a term equals itself. The property
+-- evaluates the term, so a test throws when the evaluation throws.
+selfEqualityGen :: Dynamic -> Sig -> Term -> Gen Dynamic
+selfEqualityGen eq_inst sig t = do
+    vv <- getVars sig t
+    v <- termToGen eq_inst sig vv t
+    return $ unsafeApply (unsafeApply eq_inst v) v
+
 dynProp :: Gen Dynamic -> Property
 dynProp gen = QC.forAll gen (flip fromDyn (property False))
 
