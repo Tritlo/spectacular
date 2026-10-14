@@ -9,35 +9,24 @@ import Data.Dynamic
 import Data.Map (Map)
 import Data.Text (Text)
 import qualified Data.Map as Map
-import GHC.Base (Any)
 import GHC.Generics (Generic)
-import GHC.Stack (HasCallStack)
 
 import Data.Typeable
-import Type.Reflection (someTypeRep, SomeTypeRep(..))
 import Data.Char (toLower)
-import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Monoid as M
 import Data.CFTA.Symbol (Symbol (Symbol))
 import qualified Data.CFTA.Term as CT
 import Data.Proxy
-import Data.Maybe (mapMaybe, fromJust)
-import Debug.Trace (traceShowId, trace, traceShowM)
+import Data.Maybe (mapMaybe)
+import Debug.Trace (trace)
 
 import Test.QuickCheck (Arbitrary(..), Property(..), Testable(..), Gen(..))
 import qualified Test.QuickCheck as QC
-import System.IO.Unsafe
 import Unsafe.Coerce
 import Test.QuickCheck.Property
-import Data.List (groupBy, nub, sort, sortBy)
-import Data.Function (on)
-import Data.Maybe (catMaybes)
-import Debug.Trace
 import qualified Type.Reflection as TR
 
-import qualified Data.Monoid as M
-import qualified Test.QuickCheck as QC
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Hashable (hash, Hashable)
@@ -85,9 +74,7 @@ data GeneratedInstance = Gend {
 
 sigGivens :: (TypeSkeleton -> TypeSkeleton) -> Sig -> (TypeSkeleton -> (Maybe GeneratedInstance))
           -> (Sig, Map TypeSkeleton (Text, Dynamic) , Map TypeSkeleton (Text,Func))
-sigGivens typeMod sigs extraReps = (--eqDef <>
-                   -- Map.fromList (mapMaybe toEqInst allCons) <>
-                   -- Map.fromList (mapMaybe toEmptyLi allCons) <>
+sigGivens typeMod sigs extraReps = (
                    Map.fromList (mapMaybe consName allCons)
                  , eq_insts
                  , arbs)
@@ -202,7 +189,6 @@ genRepFromProxy (Proxy :: Proxy a) = Gend {..}
     where g_tr = typeRep (Proxy :: Proxy a)
           g_arb = DynGen (arbitrary :: Gen a)
           g_eq = Just (toDyn wrappedEq)
-          --g_eq = Just (toDyn ((==) :: a -> a -> Bool))
           g_li_i = genRepFromProxy (Proxy :: Proxy [a])
           -- TODO: do something fancier here.
           -- we could add a Show here?
@@ -222,21 +208,9 @@ genRepFromProxyNoEq (Proxy :: Proxy a) = Gend {..}
 
 arith :: (Typeable a, Num a, Eq a) => Proxy a -> Sig
 arith p = Map.fromList $
-            -- ("<@Eq_"<>trtext<>"@>", 
-            --     GenFunc { gf_func = toDyn eq
-            --             , gf_rep = Just (TCons "Eq" [TCons trtext []]) }):
                 (map (fmap extraFunc) $
                  [ ("0", toDyn zero)
                  , ("1", toDyn $ (fromInteger 1) `asProxyTypeOf` p)
-                 --, ("((==) @("<> trtext <> "))", toDyn eq)
-                 -- TODO: prune?
-                 --, ("((+) @("<> trtext <> "))", toDyn plus)
-                 -- , ("((*) @("<> trtext <> "))", toDyn mul)
-                 -- , ("((-) @("<> trtext <> "))", toDyn minus)
-                 -- , ("(sign @("<> trtext <> "))", toDyn sign)
-                 -- , ("(abs @("<> trtext <> "))", toDyn ab)
-                 -- , ("(negate @("<> trtext <> "))", toDyn neg)
-                 -- , ("(fromInteger @("<> trtext <> "))", toDyn fromI)
                  ]
                  )
   where zero = (fromInteger 0) `asProxyTypeOf` p
@@ -246,8 +220,7 @@ typeRepToTypeSkeleton tr
      | [] <- tra,
        ltc <- map toLower tcn,
        ltc `elem` ["a", "b", "c","d", "acc"]
-       -- = TVar (T.pack ltc)
-       = TCons (T.pack tcn) [] -- (T.pack ltc)
+       = TCons (T.pack tcn) []
      | tcn == "->",
        [arg,ret] <- args
      = TFun arg ret
@@ -327,11 +300,6 @@ data DynGen where
 
 instance Show DynGen where
   show (DynGen dg) = show (toDyn dg)
-
--- instance Show Func where
---   show (SigFunc {..}) = show sf_func
---   show (GenFunc {..}) = show gf_func
---   show (GivenFun tr) = "given<" ++ (show tr) ++ ">"
 
 -- ConFunc comes from the user provided signature, and we want at least
 -- one of these to show up.

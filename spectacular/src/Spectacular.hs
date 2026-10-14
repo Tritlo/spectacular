@@ -1,4 +1,3 @@
-{-# OPTIONS -fno-max-valid-hole-fits #-}
 {-# LANGUAGE OverloadedStrings, TypeApplications, RecordWildCards,
              TupleSections, StandaloneDeriving, DeriveAnyClass,
              DeriveGeneric, BangPatterns #-}
@@ -11,18 +10,11 @@ module Spectacular (
 
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
--- import qualified Data.Map.Lazy as Map
--- import Data.Map.Lazy (Map)
-import Data.Tuple (swap)
--- import qualified Data.Map as Map
--- import Data.Map (Map)
-import qualified Data.Dynamic as Dyn
 import Data.Dynamic (Dynamic)
 import qualified Data.Bifunctor as Bi
 import Spectacular.Types
 import Spectacular.Utils
 import Spectacular.Testing
-import qualified Spectacular.Utils as SS
 import Data.Proxy (Proxy(..))
 
 
@@ -35,29 +27,22 @@ import Data.CFTA.Symbol (Symbol (Symbol))
 import qualified Data.CFTA.Term as CT
 import Data.List hiding (union)
 import qualified Test.QuickCheck as QC
-import Control.Monad (zipWithM_, filterM, when, mzero, void)
 import qualified Data.Text as T
-import qualified Data.Set as Set
 import qualified System.Environment as Env
 import qualified Text.Read as TR
-import Debug.Trace
-import Data.Maybe (fromMaybe, catMaybes, mapMaybe, isJust)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Char (isAlphaNum)
-import Data.Either (rights)
-import qualified Data.Monoid as M
 
 import qualified Control.Concurrent.Async as CCA
 import qualified Control.Concurrent as CC
 
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
-import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IM
-import Data.Hashable (hash, Hashable)
+import Data.Hashable (hash)
 import qualified Data.HashSet as HS
-import qualified Data.List as L
 import Data.Function (on)
-import GHC.TopHandler
+import System.IO (hFlush, stdout)
 import Data.Containers.ListUtils (nubOrdOn)
 
 data StEcta = StEcta { scope_comps  :: Comps,
@@ -225,10 +210,10 @@ tacularSpec sigs =
     do args <- Env.getArgs
        let size = case args of
                     arg:_ | Just n <- TR.readMaybe arg -> n
-                    _ -> 6 -- Set to 6 to save time on the flight xD:w
+                    _ -> 6
        let phase = case args of
                     _:arg:_ | Just n <- TR.readMaybe arg -> n
-                    _ -> 3 -- Set to 6 to save time on the flight xD:w
+                    _ -> 3
        _ <- tacularSpec' size phase (const Nothing) sigs
        return ()
 
@@ -259,12 +244,6 @@ tacularSpec' size phase extraReps sigs =
            StEcta { compl_sig = compl_sig,
                     arb_insts = arb_insts,
                     sig_ty_cons = sig_ty_cons} = mkStecta sig id id
-       -- putStrLn "sig"
-       -- putStrLn "------------------------------------------------------------"
-       -- mapM_ print $ Map.assocs sig
-       -- putStrLn "given sig"
-       -- putStrLn "------------------------------------------------------------"
-
        putStrLn $ "In Scope (" ++ show (Map.size compl_sig) ++ " functions/constants):"
        putStrLn "---------------------------------"
        mapM_ (putStrLn . T.unpack) $ Map.keys compl_sig
@@ -360,8 +339,6 @@ tacularSpec' size phase extraReps sigs =
                go' GoState {stecta=stecta@StEcta{..},
                             ty_cons_to_check = (tc:ty_cons_to_check),
                             current_terms = [],..} = do
-                --putStrLn ("Checking " ++ (T.unpack $ ppTy tc) ++ " with size " ++ show lvl_num ++ "...")
-
                 let nextNode = union $ tk scope_comps any_arg False cur_lvl
 
                 refreshCount "Reducing  ECTA" (" for " ++ show tc) "" cur_lvl so_far
@@ -456,7 +433,6 @@ tacularSpec' size phase extraReps sigs =
                                              else CCA.wait asref
 
                     refreshCount ("exploring " ++ (show current_ty)) ""
-                                 -- (" (" ++ (show $ length terms) ++ " left at this size)")
                                  ("(" ++ (show $ length terms_to_test) ++ " to test...)") cur_lvl so_far
                     holds <- testAllPar eq_inst compl_sig terms_to_test
 
@@ -464,8 +440,6 @@ tacularSpec' size phase extraReps sigs =
                     let sf' = so_far + 1
                     case holds of
                         Nothing -> do refreshCount ("exploring " ++ (show current_ty)) ""
-                                                   -- (" (" ++ (show $ length terms) ++ " left at this size)")
-
                                                    "" cur_lvl sf'
                                       go' GoState { so_far = sf',
                                                     current_terms = terms,
@@ -475,7 +449,6 @@ tacularSpec' size phase extraReps sigs =
 
                         -- These tests are expensive, so we only do them for laws that hold.
                         Just t -> do
-                            -- putStrLn ("\r" ++ (ppNpTerm $ npTerm' t) ++  " ")
                             let (gsig, glaws) =
                                   -- We have to be a bit careful about the order
                                   -- of the generalized laws, because we test
@@ -484,16 +457,13 @@ tacularSpec' size phase extraReps sigs =
 
                             -- If we don't find a more general law, we use the one
                             -- we found.
-                            --mapM_ print glaws
                             refreshCount "generalizing" "" ("(" ++ show (length glaws) ++ " possibilities...)") cur_lvl sf'
                             most_general <- fromMaybe t <$> testAllInOrderAsync eq_inst gsig glaws
                             let law_str = (show n <> ". ") <> (ppNpTerm $ most_general)
                                 lsl = max 0 (80 - length law_str)
                             putStrLn ("\r" ++ law_str ++ replicate lsl ' ')
                             refreshCount  ("exploring " ++ (show current_ty))  ""
-                                          -- (" (" ++ (show $ length terms) ++ " left at this size)")
                                            "" cur_lvl sf'
-                            -- continue sf' rwrts'' ns terms
                             let Term "filter" [_, rewrite_term] = full_term
                                 new_rw = toTemplate gsig rewrite_term
                                 new_rws = (new_rw:rewrite_terms)
@@ -546,14 +516,8 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
 allFromSig sig (Term "app" [_,f,v]) = allFromSig sig f && allFromSig sig v
 allFromSig sig (Term (Symbol t) _) = t `Map.member` sig
 
--- isVar :: Sig -> T.Text -> Bool
--- isVar sig t = case sig Map.!? t of
---                 Just (GivenFun (GivenVar _ _ _) _) -> True
---                 _ -> False
-
 refreshCount :: String -> String -> String -> Int -> Int -> IO ()
--- refreshCount _ _ _ _ _ = return ()
-refreshCount pre mid post size i = putStr (o ++ fill ++ "\r") >> flushStdHandles
+refreshCount pre mid post size i = putStr (o ++ fill ++ "\r") >> hFlush stdout
   where o' = "\r\ESC[K"
             ++ pre ++ " terms of size " ++ show size
              ++ mid
