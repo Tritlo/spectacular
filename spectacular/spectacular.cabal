@@ -44,5 +44,36 @@ executable spectacular
   build-depends: spectacular
   main-is: Main.hs
 
+-- The benchmark signatures. Each takes the size and the phase as arguments.
+common bench
+  import: deps
+  hs-source-dirs: benchmarks
+  ghc-options: -O2 -threaded -rtsopts
+  build-depends: spectacular
+
+executable bench-lists
+  import: bench
+  main-is: Lists.hs
+
+executable bench-list-monad
+  import: bench
+  main-is: ListMonad.hs
+
+executable bench-octonions
+  import: bench
+  main-is: Octonions.hs
+
+executable bench-regex
+  import: bench
+  main-is: Regex.hs
+  build-depends: mtl
+
+executable example-gcd
+  import: deps
+  hs-source-dirs: examples
+  ghc-options: -O2 -threaded -rtsopts
+  build-depends: spectacular
+  main-is: Gcd.hs
+
 
 

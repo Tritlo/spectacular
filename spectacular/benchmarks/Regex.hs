@@ -2,6 +2,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving,DeriveDataTypeable, FlexibleInstances, OverloadedStrings #-}
 import qualified Control.Monad.State as S
 import Control.Monad.State hiding (State, state)
+import Control.Monad (liftM2, guard)
 import qualified Data.Map as M
 import Data.List
 import Data.Map(Map)
