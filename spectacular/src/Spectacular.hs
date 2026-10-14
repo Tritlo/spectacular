@@ -27,6 +27,7 @@ import Data.CFTA.Symbol (Symbol (Symbol))
 import qualified Data.CFTA.Term as CT
 import Data.List hiding (union)
 import qualified Test.QuickCheck as QC
+import Test.QuickCheck.Random (mkQCGen)
 import qualified Data.Text as T
 import qualified System.Environment as Env
 import qualified Text.Read as TR
@@ -259,9 +260,12 @@ tacularSpec' size phase extraReps sigs =
 
        putStrLn "Laws according to Haskell's (==):"
        putStrLn "---------------------------------"
+       -- Each test run starts from the same seed, so that the laws are the
+       -- same in each run.
        let qc_args = QC.stdArgs { QC.chatty = False,
                                   QC.maxShrinks = 0,
-                                  QC.maxSuccess = 100}
+                                  QC.maxSuccess = 100,
+                                  QC.replay = Just (mkQCGen 0, 0)}
 
            -- TODO: add e-graphs and rewrites.
            go :: Int -> Int -> IO [String]
