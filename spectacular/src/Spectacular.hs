@@ -399,6 +399,7 @@ tacularSpec' size phase extraReps sigs =
                    not (current_ty `Map.member` unique_terms) =
                     go' (GoState{current_terms = terms,
                                 unique_terms = Map.insert current_ty (HS.singleton np_term) unique_terms,
+                                seen = seen <> IntSet.singleton (hash np_term),
                                 ..})
                  -- if we've seen it before, we can immediately skip.
                  | (hash np_term) `IntSet.member` seen = skip seen
@@ -490,12 +491,19 @@ tacularSpec' size phase extraReps sigs =
                                                          testProperty qc_args
                                                            (dynProp $ selfEqualityGen eq_inst compl_sig wip_rewritten)
                                                   else return True
+                                      -- A later phase enumerates the
+                                      -- representative again, so it goes
+                                      -- into seen too.
                                       go' GoState { so_far = sf',
                                                     current_terms = terms,
                                                     unique_terms =
                                                       if testable
                                                       then Map.adjust (HS.insert wip_rewritten) current_ty unique_terms
                                                       else unique_terms,
+                                                    seen =
+                                                      if testable
+                                                      then seen <> IntSet.singleton (hash np_term)
+                                                      else seen,
                                                     ..}
 
                         -- These tests are expensive, so we only do them for laws that hold.
