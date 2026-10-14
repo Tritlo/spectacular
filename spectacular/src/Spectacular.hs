@@ -152,16 +152,37 @@ termSize (Term s args) = 1 + sum (map termSize args)
 -- best would probably be to apply this in the node.
 
 
+-- | The rules of the laws, by the head of their left sides (see
+-- 'spineHead'). A rule whose head is a template variable has the key
+-- Nothing, because it can match a term with any head.
+type Rules = Map (Maybe (Symbol, Int)) [(Term, Term)]
+
+-- | Add rules to the index of the rules.
+addRules :: [(Term, Term)] -> Rules -> Rules
+addRules new rules = foldr add rules new
+  where add rule@(l, _) = Map.insertWith (++) (key l) [rule]
+        key l = case spineHead l of
+            (Symbol h, _) | "<v>" `T.isPrefixOf` h -> Nothing
+            k -> Just k
+
+-- | The head of a term: the symbol of the function of its application
+-- spine, and the number of the arguments of the spine. A template whose
+-- head is a symbol matches only a term with the same head.
+spineHead :: Term -> (Symbol, Int)
+spineHead (Term "app" [_, f, _]) = fmap (+ 1) (spineHead f)
+spineHead (Term s _) = (s, 0)
+
 -- | Whether a rule rewrites a subterm of the term to a smaller term in the
 -- Knuth-Bendix order. Then the term equals a smaller term, which the search
 -- sees, so the term is redundant. The subterms are the term, and the
 -- function and the argument of an application; the types are not subterms.
 -- This is ordered rewriting, as in Twee: a law that the order cannot
 -- orient, such as commutativity, rewrites an instance only when the
--- instance gets smaller.
-reducible :: (Symbol -> Bool) -> [(Term, Term)] -> Term -> Bool
+-- instance gets smaller. Only the rules with the head of the subterm, and
+-- the rules with a template variable as head, can match the subterm.
+reducible :: (Symbol -> Bool) -> Rules -> Term -> Bool
 reducible isVar rules t =
-    any rewrites rules ||
+    any rewrites (Map.findWithDefault [] (Just (spineHead t)) rules ++ Map.findWithDefault [] Nothing rules) ||
     case t of
       Term "app" [_, f, v] -> reducible isVar rules f || reducible isVar rules v
       _ -> False
@@ -229,8 +250,8 @@ data Search = Search {
     -- | The representatives of each type.
     -- | The decision tree of the representatives of each type.
     trees :: !(Map Term DT.DecisionTree),
-    -- | The laws, as pairs of templates in both directions.
-    rewrite_rules :: ![(Term, Term)],
+    -- | The rules of the laws, by the heads of their left sides.
+    rewrite_rules :: !Rules,
     -- | The number of terms that the search examined.
     so_far :: !Int,
     -- | The number of laws that the search found.
@@ -353,7 +374,7 @@ runPhases :: Settings -> Int -> Int -> (TypeSkeleton -> Maybe GeneratedInstance)
 runPhases env size lastPhase extraReps sig =
     go (zip [1..] phases) Search { seen = HS.empty,
                                    trees = Map.empty,
-                                   rewrite_rules = [],
+                                   rewrite_rules = Map.empty,
                                    so_far = 0,
                                    law_count = 0 }
   where
@@ -466,7 +487,7 @@ consider Settings{..} StEcta{..} lvl full_term s@Search{..}
                         s { seen = HS.insert np_term seen,
                             so_far = sf',
                             law_count = n,
-                            rewrite_rules = lawRules gsig most_general ++ rewrite_rules })
+                            rewrite_rules = addRules (lawRules gsig most_general) rewrite_rules })
   where -- wrt variable renaming
         np_term = npTerm' full_term
         Term "filter" [current_ty,_] = full_term
