@@ -98,6 +98,21 @@ schemaInstances isVar vars t =
     | ivs <- sortOn generality (mapM (zip [0 :: Int ..] . take variablesPerType . (vars Map.!)) (holes isVar t)) ]
   where generality ivs = (negate (length (nubOrd (map snd ivs))), map fst ivs)
 
+-- | A law with canonical names, as QuickSpec prints a law: the variables of
+-- each type get the indexes 0, 1, and so on, in the order of their first
+-- occurrence from left to right. The second argument gives the variables of
+-- each type, from the variable with the index 0.
+canonicalLaw :: Map Symbol [Symbol] -> Term -> Term
+canonicalLaw vars law = rename law
+  where
+    family = Map.fromList [ (v, x) | (x, vs) <- Map.assocs vars, v <- vs ]
+    occurrences (Term s ts) = [s | s `Map.member` family] ++ concatMap occurrences ts
+    names = Map.fromList (snd (mapAccumL next Map.empty (nubOrd (occurrences law))))
+    next counts v = let f = family Map.! v
+                        n = Map.findWithDefault 0 f counts
+                    in (Map.insert f (n + 1) counts, (v, (vars Map.! f) !! n))
+    rename (Term s ts) = Term (Map.findWithDefault s s names) (map rename ts)
+
 
 typeSkeletonToTerm :: TypeSkeleton -> Term
 typeSkeletonToTerm (TCons s args)
@@ -435,7 +450,7 @@ consider Settings{..} StEcta{..} lvl full_term s0
                         | otherwise -> do
                             let n = law_count s + 1
                                 law = lawOf w
-                                law_str = show n <> ". " <> ppNpTerm law
+                                law_str = show n <> ". " <> ppNpTerm (canonicalLaw schema_vars law)
                             when progress $ hPutStr stderr "\r\ESC[K"
                             putStrLn law_str
                             return (Discovered law_str,

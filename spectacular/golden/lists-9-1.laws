@@ -9,7 +9,7 @@
 9. length xs0_<[A]> == length ((map f0_<A -> A>) xs0_<[A]>)
 10. reverse ((map f0_<A -> A>) xs0_<[A]>) == (map f0_<A -> A>) (reverse xs0_<[A]>)
 11. length (((++) xs0_<[A]>) xs1_<[A]>) == length (((++) xs0_<[A]>) (reverse xs1_<[A]>))
-12. ((++) xs1_<[A]>) (reverse xs0_<[A]>) == reverse (((++) xs0_<[A]>) (reverse xs1_<[A]>))
+12. ((++) xs0_<[A]>) (reverse xs1_<[A]>) == reverse (((++) xs1_<[A]>) (reverse xs0_<[A]>))
 13. ((++) xs0_<[A]>) (((++) xs1_<[A]>) xs2_<[A]>) == ((++) (((++) xs0_<[A]>) xs1_<[A]>)) xs2_<[A]>
 14. length (((++) xs0_<[A]>) xs1_<[A]>) == length (((++) xs0_<[A]>) ((map f0_<A -> A>) xs1_<[A]>))
 15. (map f0_<A -> A>) (((++) xs0_<[A]>) xs1_<[A]>) == ((++) ((map f0_<A -> A>) xs0_<[A]>)) ((map f0_<A -> A>) xs1_<[A]>)
