@@ -14,7 +14,7 @@ newtype PosInt = P Int
 instance Arbitrary PosInt where
   arbitrary = P <$> arbitrary `suchThat` (>= 0)
 
-extraReps (TCons "PosInt" []) = Just $ genRepFromProxy (Proxy :: Proxy PosInt)
+extraReps t | t == typeSkeletonOf (Proxy :: Proxy PosInt) = Just $ genRepFromProxy (Proxy :: Proxy PosInt)
 extraReps _ = Nothing
 
 main = discoverMonomorphic 3 extraReps [

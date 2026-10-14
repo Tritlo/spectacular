@@ -18,7 +18,7 @@ instance Arbitrary PosInt where
 
 -- | The generator and the equality of PosInt for the Gcd signature.
 posIntReps :: TypeSkeleton -> Maybe GeneratedInstance
-posIntReps (TCons "PosInt" []) = Just $ genRepFromProxy (Proxy :: Proxy PosInt)
+posIntReps t | t == typeSkeletonOf (Proxy :: Proxy PosInt) = Just $ genRepFromProxy (Proxy :: Proxy PosInt)
 posIntReps _ = Nothing
 
 -- | The name of each golden file and the run that gives its laws.

@@ -1,32 +1,32 @@
 1. 0 == length []
-2. [] == reverse []
-3. sort xs0_<[Int]> == usort xs0_<[Int]>
+2. sort xs0_<[Int]> == usort xs0_<[Int]>
+3. [] == reverse []
 4. length xs0_<[A]> == length (reverse xs0_<[A]>)
 5. sum xs0_<[Int]> == sum (sort xs0_<[Int]>)
 6. x0_<Int> == ((+) x0_<Int>) 0
 7. x0_<Int> == ((+) 0) x0_<Int>
 8. (zip []) [] == (zip []) xs0_<[A]>
 9. (zip []) [] == (zip xs0_<[A]>) []
-10. xs0_<[A]> == reverse (reverse xs0_<[A]>)
-11. [] == ((++) []) []
-12. xs0_<[A]> == ((++) []) xs0_<[A]>
-13. xs0_<[A]> == ((++) xs0_<[A]>) []
-14. [] == (drop x0_<Int>) []
-15. xs0_<[A]> == (drop 0) xs0_<[A]>
-16. [] == (map f0_<A -> A>) []
-17. [] == (take x0_<Int>) []
-18. [] == (take 0) xs0_<[A]>
-19. sort xs0_<[Int]> == sort (sort xs0_<[Int]>)
-20. x0_<A> == fst (((,) x0_<A>) x1_<A>)
-21. x0_<A> == snd (((,) x1_<A>) x0_<A>)
-22. succ x0_<Int> == ((+) x0_<Int>) (succ 0)
-23. ((+) x0_<Int>) (length xs0_<[A]>) == ((+) (length xs0_<[A]>)) x0_<Int>
-24. ((+) x0_<Int>) (succ x1_<Int>) == ((+) (succ x0_<Int>)) x1_<Int>
-25. ((+) x0_<Int>) (sum xs0_<[Int]>) == ((+) (sum xs0_<[Int]>)) x0_<Int>
-26. succ 0 == length (((:) x0_<A>) [])
-27. succ (length xs0_<[A]>) == length (((:) x0_<A>) xs0_<[A]>)
-28. length xs0_<[A]> == length ((map f0_<A -> A>) xs0_<[A]>)
-29. ((+) x0_<Int>) (succ x1_<Int>) == succ (((+) x0_<Int>) x1_<Int>)
+10. sort xs0_<[Int]> == sort (sort xs0_<[Int]>)
+11. xs0_<[A]> == reverse (reverse xs0_<[A]>)
+12. [] == ((++) []) []
+13. xs0_<[A]> == ((++) []) xs0_<[A]>
+14. xs0_<[A]> == ((++) xs0_<[A]>) []
+15. [] == (drop x0_<Int>) []
+16. xs0_<[A]> == (drop 0) xs0_<[A]>
+17. [] == (map f0_<A -> A>) []
+18. [] == (take x0_<Int>) []
+19. [] == (take 0) xs0_<[A]>
+20. succ x0_<Int> == ((+) x0_<Int>) (succ 0)
+21. ((+) x0_<Int>) (length xs0_<[A]>) == ((+) (length xs0_<[A]>)) x0_<Int>
+22. ((+) x0_<Int>) (succ x1_<Int>) == ((+) (succ x0_<Int>)) x1_<Int>
+23. ((+) x0_<Int>) (sum xs0_<[Int]>) == ((+) (sum xs0_<[Int]>)) x0_<Int>
+24. succ 0 == length (((:) x0_<A>) [])
+25. succ (length xs0_<[A]>) == length (((:) x0_<A>) xs0_<[A]>)
+26. length xs0_<[A]> == length ((map f0_<A -> A>) xs0_<[A]>)
+27. ((+) x0_<Int>) (succ x1_<Int>) == succ (((+) x0_<Int>) x1_<Int>)
+28. x0_<A> == fst (((,) x0_<A>) x1_<A>)
+29. x0_<A> == snd (((,) x1_<A>) x0_<A>)
 30. ((:) x0_<A>) [] == reverse (((:) x0_<A>) [])
 31. reverse ((map f0_<A -> A>) xs0_<[A]>) == (map f0_<A -> A>) (reverse xs0_<[A]>)
 32. [] == (drop (length xs1_<[A]>)) xs1_<[A]>

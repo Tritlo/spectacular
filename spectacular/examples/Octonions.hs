@@ -52,7 +52,7 @@ instance Arbitrary It where
   -- Division is undefined on zero octonions.
   arbitrary = It <$> arbitrary `suchThat` (/= 0)
 
-extraReps (TCons "It" []) = Just $ genRepFromProxy (Proxy :: Proxy It)
+extraReps t | t == typeSkeletonOf (Proxy :: Proxy It) = Just $ genRepFromProxy (Proxy :: Proxy It)
 extraReps _ = Nothing
 
 main = tacularSpec [

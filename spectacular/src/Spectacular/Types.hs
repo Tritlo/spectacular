@@ -12,7 +12,6 @@ import qualified Data.Map as Map
 import GHC.Generics (Generic)
 
 import Data.Typeable
-import Data.Char (toLower)
 import qualified Data.Text as T
 import Data.CFTA.Symbol (Symbol (Symbol))
 import qualified Data.CFTA.Term as CT
@@ -127,34 +126,10 @@ sigGivens typeMod sigs extraReps = (
         
 
         genRep :: TypeSkeleton -> Maybe GeneratedInstance
-        genRep (TVar a) = genRep (TCons (T.toUpper a) [])
-        genRep (TCons "A"        []) = Just $ genRepFromProxy (Proxy :: Proxy A)
-        genRep (TCons "B"        []) = Just $ genRepFromProxy (Proxy :: Proxy B)
-        genRep (TCons "C"        []) = Just $ genRepFromProxy (Proxy :: Proxy C)
-        genRep (TCons "D"        []) = Just $ genRepFromProxy (Proxy :: Proxy D)
-        genRep (TCons "Acc"      []) = Just $ genRepFromProxy (Proxy :: Proxy Acc)
-        genRep (TCons "()"       []) = Just $ genRepFromProxy (Proxy :: Proxy ())
-        genRep (TCons "Int"      []) = Just $ genRepFromProxy (Proxy :: Proxy Int)
-        genRep (TCons "Bool"     []) = Just $ genRepFromProxy (Proxy :: Proxy Bool)
-        genRep (TCons "Char"     []) = Just $ genRepFromProxy (Proxy :: Proxy Char)
-        genRep (TCons "Integer"  []) = Just $ genRepFromProxy (Proxy :: Proxy Integer)
-        genRep (TCons "Double"   []) = Just $ genRepFromProxy (Proxy :: Proxy Double)
-        genRep (TCons "Float"    []) = Just $ genRepFromProxy (Proxy :: Proxy Float)
-        genRep (TCons "Ordering" []) = Just $ genRepFromProxy (Proxy :: Proxy Ordering)
-        genRep (TCons "Word"     []) = Just $ genRepFromProxy (Proxy :: Proxy Word)
+        genRep (TVar a) | Just t <- lookup a [ (v, t) | (t, v) <- carriers ] = genRep t
+        genRep t | Just g <- lookup t builtinReps = Just g
         genRep (TCons "[]" [ts]) = g_li_i <$> genRep ts
-        genRep (TFun (TCons "A" []) (TCons "B" []))
-            = Just $ genRepFromProxyNoEq (Proxy :: Proxy (A->B))
-        genRep (TFun (TCons "A" []) (TCons "A" []))
-            = Just $ genRepFromProxyNoEq (Proxy :: Proxy (A->A))
         genRep (TFun _ _) = Nothing
-        -- Some special cases for HugeLists
-        genRep (TCons "(,)" [TCons "A" [], TCons "B" []]) = Just $ genRepFromProxy (Proxy :: Proxy (A,B))
-        genRep (TCons "(,)" [TCons "A" [], TCons "A" []]) = Just $ genRepFromProxy (Proxy :: Proxy (A,A))
-        genRep (TCons "(,)" [TCons "[]" [TCons "A" []], TCons "[]" [TCons "B" []]])
-            = Just $ genRepFromProxy (Proxy :: Proxy ([A],[B]))
-        genRep (TCons "(,)" [TCons "[]" [TCons "A" []], TCons "[]" [TCons "A" []]])
-            = Just $ genRepFromProxy (Proxy :: Proxy ([A],[A]))
         --- To allow for types not considered here
         --- Not sure if this is the best way to go about it
         genRep x = 
@@ -222,28 +197,59 @@ arith p = Map.fromList $
 
 typeRepToTypeSkeleton :: TypeRep -> TypeSkeleton
 typeRepToTypeSkeleton tr
-     | [] <- tra,
-       ltc <- map toLower tcn,
-       ltc `elem` ["a", "b", "c","d", "acc"]
-       = TCons (T.pack tcn) []
      | tcn == "->",
        [arg,ret] <- args
      = TFun arg ret
      | otherwise = TCons (T.pack tcn) args
   where (tc, tra) = splitTyConApp tr
-        tcn = specialName tc
+        tcn = typeConName tc
         args = map typeRepToTypeSkeleton tra
 
--- | The name of a type constructor. GHC 9.6 and later give some built-in
--- type constructors new names, for example List for []. This function
--- gives the name of the special syntax, which the generators use.
-specialName :: TyCon -> String
-specialName tc
+-- | The type skeleton of a type. An extraReps function can use it to
+-- recognize a type: t == typeSkeletonOf (Proxy :: Proxy MyType).
+typeSkeletonOf :: Typeable a => Proxy a -> TypeSkeleton
+typeSkeletonOf = typeRepToTypeSkeleton . typeRep
+
+-- | The name of a type constructor, with its module, so that two types with
+-- the same name in different modules stay apart. GHC 9.6 and later give
+-- some built-in type constructors new names, for example List for []. For
+-- these, the function gives the name of the special syntax.
+typeConName :: TyCon -> String
+typeConName tc
   | tc == tyConOf (Proxy :: Proxy [()]) = "[]"
   | tc == tyConOf (Proxy :: Proxy ((), ())) = "(,)"
   | tc == tyConOf (Proxy :: Proxy ()) = "()"
   | tc == tyConOf (Proxy :: Proxy (() -> ())) = "->"
-  | otherwise = tyConName tc
+  | otherwise = tyConModule tc ++ "." ++ tyConName tc
+
+-- | The types that stand for type variables, with the names of the type
+-- variables.
+carriers :: [(TypeSkeleton, Text)]
+carriers =
+  [ (typeSkeletonOf (Proxy :: Proxy A), "a")
+  , (typeSkeletonOf (Proxy :: Proxy B), "b")
+  , (typeSkeletonOf (Proxy :: Proxy C), "c")
+  , (typeSkeletonOf (Proxy :: Proxy D), "d")
+  , (typeSkeletonOf (Proxy :: Proxy Acc), "acc") ]
+
+-- | The generators and the equalities of the types that the signatures of
+-- the benchmarks use.
+builtinReps :: [(TypeSkeleton, GeneratedInstance)]
+builtinReps =
+  [ withEq (Proxy :: Proxy A), withEq (Proxy :: Proxy B), withEq (Proxy :: Proxy C)
+  , withEq (Proxy :: Proxy D), withEq (Proxy :: Proxy Acc), withEq (Proxy :: Proxy ())
+  , withEq (Proxy :: Proxy Int), withEq (Proxy :: Proxy Bool), withEq (Proxy :: Proxy Char)
+  , withEq (Proxy :: Proxy Integer), withEq (Proxy :: Proxy Double)
+  , withEq (Proxy :: Proxy Float), withEq (Proxy :: Proxy Ordering)
+  , withEq (Proxy :: Proxy Word)
+  , withoutEq (Proxy :: Proxy (A -> B)), withoutEq (Proxy :: Proxy (A -> A))
+  , withEq (Proxy :: Proxy (A, B)), withEq (Proxy :: Proxy (A, A))
+  , withEq (Proxy :: Proxy ([A], [B])), withEq (Proxy :: Proxy ([A], [A])) ]
+  where
+    withEq :: (Show a, Eq a, Typeable a, Arbitrary a) => Proxy a -> (TypeSkeleton, GeneratedInstance)
+    withEq p = (typeSkeletonOf p, genRepFromProxy p)
+    withoutEq :: (Typeable a, Arbitrary a) => Proxy a -> (TypeSkeleton, GeneratedInstance)
+    withoutEq p = (typeSkeletonOf p, genRepFromProxyNoEq p)
 
 -- | The type constructor of a type.
 tyConOf :: Typeable a => Proxy a -> TyCon
@@ -288,7 +294,7 @@ gvToNameNoType :: GivenInfo -> Text
 gvToNameNoType (GivenVar tr i _) = var<>is
   where trn = T.pack (show tr)
         is = T.pack (show i)
-        var = case specialName (typeRepTyCon tr) of
+        var = case typeConName (typeRepTyCon tr) of
                 "[]" -> "xs"
                 "->" -> "f"
                 _ -> "x"
@@ -354,15 +360,14 @@ getVars sig (Term (Symbol sym) args) = do
         _ -> return vv 
 
 generalizeType :: TypeSkeleton -> TypeSkeleton
-generalizeType (TCons s []) | s `elem` ["A","B","C","D","Acc"]
-    = TVar (T.pack $ map toLower $ T.unpack s)
+generalizeType t | Just v <- lookup t carriers = TVar v
 generalizeType (TCons s r) = TCons s $ map generalizeType r
 generalizeType (TFun arg ret) = TFun (generalizeType arg) (generalizeType ret)
 generalizeType tsk = tsk
 
 
 monomorphiseType :: TypeSkeleton -> TypeSkeleton
-monomorphiseType (TCons s []) | s `elem` ["A","B","C","D","Acc"] = TCons "A" []
+monomorphiseType t | Just _ <- lookup t carriers = typeSkeletonOf (Proxy :: Proxy A)
 monomorphiseType (TCons s r) = TCons s $ map monomorphiseType r
 monomorphiseType (TFun arg ret) = TFun (monomorphiseType arg) (monomorphiseType ret)
 monomorphiseType tsk = tsk

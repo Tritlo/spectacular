@@ -114,8 +114,8 @@ epsilonClosed nfa s = s:M.findWithDefault [] s (epsilons nfa)
 nub' :: Ord a => [a] -> [a]
 nub' = map head . group . sort
 
-extraReps (TCons "Sym" []) = Just $ genRepFromProxy (Proxy :: Proxy Sym)
-extraReps (TCons "Regex" [TCons "Sym" []]) = Just $ genRepFromProxy (Proxy :: Proxy (Regex Sym))
+extraReps t | t == typeSkeletonOf (Proxy :: Proxy Sym) = Just $ genRepFromProxy (Proxy :: Proxy Sym)
+extraReps t | t == typeSkeletonOf (Proxy :: Proxy (Regex Sym)) = Just $ genRepFromProxy (Proxy :: Proxy (Regex Sym))
 extraReps _ = Nothing
 --   monoType (Proxy :: Proxy (Regex Sym)),
 --   monoType (Proxy :: Proxy Sym) ]
