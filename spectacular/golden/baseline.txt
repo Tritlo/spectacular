@@ -8,10 +8,10 @@ runs are the timing cells: compare their allocation and their time
 before and after a change.
 
 run              program            args  laws  elapsed s    bytes allocated  max residency
-gcd-3-1          example-gcd                 9      0.007         15,396,408        248,056
-list-monad-5-1   bench-list-monad   5 1      4      0.015         46,436,832      3,630,840
-lists-5-1        bench-lists        5 1     17      0.040        234,136,656      3,713,872
-octonions-4-1    bench-octonions    4 1      6      0.019         34,784,360        249,832
-regex-4-1        bench-regex        4 1     22      0.335      2,901,364,376        870,888
-lists-9-1        bench-lists        9 1     48      7.709     35,142,970,928    135,947,360
-huge-lists-7-1   bench-huge-lists   7 1    306     22.722    141,436,109,248     22,896,192
+gcd-3-1          example-gcd                 9      0.006         14,197,392        244,576
+list-monad-5-1   bench-list-monad   5 1      4      0.013         44,454,928      3,824,216
+lists-5-1        bench-lists        5 1     17      0.057        314,739,912     14,363,632
+octonions-4-1    bench-octonions    4 1      6      0.021         33,752,824        241,832
+regex-4-1        bench-regex        4 1     22      0.330      2,897,276,296        801,968
+lists-9-1        bench-lists        9 1     48      8.028     35,509,849,992    152,202,416
+huge-lists-7-1   bench-huge-lists   7 1    306     21.856    141,234,795,592     20,463,768

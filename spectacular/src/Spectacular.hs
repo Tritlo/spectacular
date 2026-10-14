@@ -27,6 +27,7 @@ import Data.List hiding (union)
 import qualified Test.QuickCheck as QC
 import Test.QuickCheck.Random (mkQCGen)
 import qualified Data.Text as T
+import Control.Monad (when)
 import qualified System.Environment as Env
 import qualified Text.Read as TR
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -39,7 +40,7 @@ import qualified Data.IntSet as IntSet
 import qualified Data.IntMap.Strict as IM
 import qualified Data.HashSet as HS
 import Data.Function (on)
-import System.IO (hFlush, stdout)
+import System.IO (hFlush, hPutStr, stderr)
 import Data.Containers.ListUtils (nubOrdOn)
 
 data StEcta = StEcta { any_arg       :: Node Symbol,
@@ -253,7 +254,9 @@ discoverMonomorphic size = experimentalPhases size 1
 -- coerce values between types with unsafeCoerce (see 'unsafeApply').
 experimentalPhases :: Int -> Int -> (TypeSkeleton -> (Maybe GeneratedInstance)) -> [Sig] -> IO [String]
 experimentalPhases size phase extraReps sigs =
-    do let sig = mconcat sigs
+    do -- SPECTACULAR_PROGRESS=1 shows the progress of the search on stderr.
+       progress <- (== Just "1") <$> Env.lookupEnv "SPECTACULAR_PROGRESS"
+       let sig = mconcat sigs
            mkStecta sig givenTrans skelTrans =
                     StEcta { any_arg = ag,
                              compl_sig = compl_sig,
@@ -378,11 +381,11 @@ experimentalPhases size phase extraReps sigs =
                             current_terms = [],..} = do
                 let nextNode = union $ tk any_arg cur_lvl
 
-                refreshCount "Reducing  ECTA" (" for " ++ show tc) "" cur_lvl so_far
+                refreshCount progress "Reducing  ECTA" (" for " ++ show tc) "" cur_lvl so_far
                 let max_rounds = 100
                     !ecta = filterType nextNode $ typeToFta tc
                     !reduced = fixWithin max_rounds (withoutRedundantEdges . reducePartially) ecta
-                refreshCount "Refolding ecta" (" for " ++ show tc) "" cur_lvl so_far
+                refreshCount progress "Refolding ecta" (" for " ++ show tc) "" cur_lvl so_far
 
                 !folded <- return $ refold reduced
 
@@ -390,9 +393,9 @@ experimentalPhases size phase extraReps sigs =
                 let terms = map fst $ runs "Mu" folded
                 -- We want to display a message once the first term is found.
                 -- in particular, it hangs after this messages for HugeLists 6
-                refreshCount "Finding first term " (" for " ++ show tc) "" cur_lvl so_far
+                refreshCount progress "Finding first term " (" for " ++ show tc) "" cur_lvl so_far
                 case terms of
-                    (t:_) -> refreshCount "Folded, exploring " (" for " ++ show tc) "" cur_lvl so_far
+                    (t:_) -> refreshCount progress "Folded, exploring " (" for " ++ show tc) "" cur_lvl so_far
                     _ -> return ()
 
                 go' GoState{ current_terms=terms,..}
@@ -481,14 +484,14 @@ experimentalPhases size phase extraReps sigs =
                                              return (Just a)
                                      else CCA.wait asref
 
-                    refreshCount ("exploring " ++ (show current_ty)) ""
+                    refreshCount progress ("exploring " ++ (show current_ty)) ""
                                  ("(" ++ (show $ length terms_to_test) ++ " to test...)") cur_lvl so_far
                     (holds, untestable) <- testAllPar eq_inst compl_sig terms_to_test
 
 
                     let sf' = so_far + 1
                     case holds of
-                        Nothing -> do refreshCount ("exploring " ++ (show current_ty)) ""
+                        Nothing -> do refreshCount progress ("exploring " ++ (show current_ty)) ""
                                                    "" cur_lvl sf'
                                       -- A test threw. The candidate or a
                                       -- representative caused it, so test
@@ -525,12 +528,12 @@ experimentalPhases size phase extraReps sigs =
 
                             -- If we don't find a more general law, we use the one
                             -- we found.
-                            refreshCount "generalizing" "" ("(" ++ show (length glaws) ++ " possibilities...)") cur_lvl sf'
+                            refreshCount progress "generalizing" "" ("(" ++ show (length glaws) ++ " possibilities...)") cur_lvl sf'
                             most_general <- fromMaybe t <$> testAllInOrderAsync eq_inst gsig glaws
                             let law_str = (show n <> ". ") <> (ppNpTerm $ most_general)
-                                lsl = max 0 (80 - length law_str)
-                            putStrLn ("\r" ++ law_str ++ replicate lsl ' ')
-                            refreshCount  ("exploring " ++ (show current_ty))  ""
+                            when progress $ hPutStr stderr "\r\ESC[K"
+                            putStrLn law_str
+                            refreshCount progress  ("exploring " ++ (show current_ty))  ""
                                            "" cur_lvl sf'
                             -- The rules of the law: its two sides as
                             -- templates, with the variables of the most
@@ -588,8 +591,11 @@ ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> p
 allFromSig sig (Term "app" [_,f,v]) = allFromSig sig f && allFromSig sig v
 allFromSig sig (Term (Symbol t) _) = t `Map.member` sig
 
-refreshCount :: String -> String -> String -> Int -> Int -> IO ()
-refreshCount pre mid post size i = putStr (o ++ fill ++ "\r") >> hFlush stdout
+-- | Show the progress of the search on one line of stderr, if the first
+-- argument is True.
+refreshCount :: Bool -> String -> String -> String -> Int -> Int -> IO ()
+refreshCount False _ _ _ _ _ = return ()
+refreshCount True pre mid post size i = hPutStr stderr (o ++ fill ++ "\r") >> hFlush stderr
   where o' = "\r\ESC[K"
             ++ pre ++ " terms of size " ++ show size
              ++ mid
