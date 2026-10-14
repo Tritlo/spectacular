@@ -28,7 +28,7 @@ import Test.QuickCheck.Random (mkQCGen)
 import qualified Data.Text as T
 import qualified System.Environment as Env
 import qualified Text.Read as TR
-import Data.Maybe (fromMaybe, mapMaybe, isJust)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Char (isAlphaNum)
 
 import qualified Control.Concurrent.Async as CCA
@@ -150,15 +150,29 @@ termSize (Term s args) = 1 + sum (map termSize args)
 -- best would probably be to apply this in the node.
 
 
--- | Whether the term has a subterm that is an instance of the template.
--- The subterms are the term, and the function and the argument of an
--- application. The types are not subterms.
-containsInstance :: Term -> Term -> Bool
-containsInstance tmpl t =
-    isJust (matchTemplate tmpl t Map.empty) ||
+-- | Whether a rule rewrites a subterm of the term to a smaller term in the
+-- Knuth-Bendix order. Then the term equals a smaller term, which the search
+-- sees, so the term is redundant. The subterms are the term, and the
+-- function and the argument of an application; the types are not subterms.
+-- This is ordered rewriting, as in Twee: a law that the order cannot
+-- orient, such as commutativity, rewrites an instance only when the
+-- instance gets smaller.
+reducible :: [(Term, Term)] -> Term -> Bool
+reducible rules t =
+    any rewrites rules ||
     case t of
-      Term "app" [_, f, v] -> containsInstance tmpl f || containsInstance tmpl v
+      Term "app" [_, f, v] -> reducible rules f || reducible rules v
       _ -> False
+  where
+    rewrites (l, r) = case matchTemplate l t Map.empty of
+        Just s | Just r' <- instantiate s r -> kboGreater t r'
+        _ -> False
+
+-- | Replace the template variables of a template by their terms.
+instantiate :: Map Symbol Term -> Term -> Maybe Term
+instantiate s (Term h@(Symbol name) args)
+    | "<v>" `T.isPrefixOf` name = Map.lookup h s
+    | otherwise = Term h <$> traverse (instantiate s) args
 
 -- | Match a template against a term, and extend the substitution of the
 -- template variables. A template variable matches a term of its type. A
@@ -179,6 +193,26 @@ matchTemplate (Term a [ty]) (Term b [ty']) s
     | a == b && ty == ty' = Just s
 matchTemplate _ _ _ = Nothing
 
+-- | The Knuth-Bendix order on ground terms: s > t. Each symbol has the
+-- weight 1. An application is the binary symbol app, which is above the
+-- other symbols, and the other symbols compare by their names. The
+-- generated variables of a term are constants here. The order is
+-- well-founded and closed under contexts, so rewriting with it ends.
+kboGreater :: Term -> Term -> Bool
+kboGreater s t = weight s > weight t || (weight s == weight t && sameWeight)
+  where
+    weight (Term "app" [_, f, v]) = 1 + weight f + weight v
+    weight _ = 1 :: Int
+    sameWeight = case (s, t) of
+        (Term "app" [_, f, v], Term "app" [_, g, u]) -> lexGreater [f, v] [g, u]
+        (Term "app" _, _) -> True
+        (_, Term "app" _) -> False
+        (Term a _, Term b _) -> a > b
+    lexGreater (a:as) (b:bs)
+        | a == b = lexGreater as bs
+        | otherwise = kboGreater a b
+    lexGreater _ _ = False
+
 
 type TermSet = HS.HashSet Term
 
@@ -190,7 +224,8 @@ data GoState = GoState {seen :: !IntSet, --hashed integers
                         cur_lvl :: Int,
                         law_nums :: [Int],
                         current_terms :: [Term],
-                        rewrite_terms :: ![Term],
+                        -- The laws, as pairs of templates in both directions.
+                        rewrite_rules :: ![(Term, Term)],
                         ty_cons_to_check :: [TypeSkeleton],
                         phase_number :: Int
                         } deriving (Show)
@@ -261,7 +296,7 @@ tacularSpec' size phase extraReps sigs =
            go n phase  =
                   do let stecta@StEcta{..} = mkStecta sig monomorphiseType monomorphiseType
                      go' GoState {seen = IntSet.empty,
-                                  rewrite_terms = [],
+                                  rewrite_rules = [],
                                   unique_terms = Map.empty,
                                   stecta = stecta,
                                   so_far = 0,
@@ -356,9 +391,9 @@ tacularSpec' size phase extraReps sigs =
                            current_terms = (full_term:terms),
                            stecta = stecta@StEcta{..},
                            ..}
-                 -- The term has an instance of a known law in it, so a
-                 -- smaller term is equal to it.
-                 | any (`containsInstance` np_term) rewrite_terms =
+                 -- A known law rewrites the term to a smaller term, so the
+                 -- term is redundant.
+                 | reducible rewrite_rules np_term =
                     go' GoState{current_terms = terms, ..}
                  | Term "filter" [current_ty,_] <- full_term,
                    not (current_ty `Map.member` unique_terms) =
@@ -480,19 +515,22 @@ tacularSpec' size phase extraReps sigs =
                             putStrLn ("\r" ++ law_str ++ replicate lsl ' ')
                             refreshCount  ("exploring " ++ (show current_ty))  ""
                                            "" cur_lvl sf'
-                            -- The template of the law is its new side, with
-                            -- the variables of the most general law.
-                            let lawRhs (Term "(==)" [_, _, rhs]) = rhs
-                                lawRhs law = law
-                                new_rw = toTemplate gsig (lawRhs most_general)
-                                new_rws = (new_rw:rewrite_terms)
+                            -- The rules of the law: its two sides as
+                            -- templates, with the variables of the most
+                            -- general law, in both directions.
+                            let new_rules = case most_general of
+                                    Term "(==)" [_, l, r] ->
+                                        let l' = toTemplate gsig l
+                                            r' = toTemplate gsig r
+                                        in [(l', r'), (r', l')]
+                                    _ -> []
                             (law_str:) <$>
                                go' GoState {
                                     seen = seen <> IntSet.singleton (hash np_term),
                                     so_far=sf',
                                     law_nums = ns,
                                     current_terms = terms,
-                                    rewrite_terms = new_rws,
+                                    rewrite_rules = new_rules ++ rewrite_rules,
                                     ..}
                   where skip seen = do go' GoState{so_far = so_far+1,
                                                     current_terms = terms, ..}
