@@ -20,7 +20,6 @@ common deps
                  text,
                  containers,
                  microcfta,
-                 time,
                  QuickCheck >= 2.15 && < 2.19,
                  async,
                  hashable,

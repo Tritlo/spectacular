@@ -80,7 +80,6 @@ data GeneratedInstance = Gend {
     g_tr :: TypeRep,
     g_arb :: DynGen,
     g_eq :: Maybe Dynamic,
-    g_empty_li :: Dynamic,
     g_li_i :: GeneratedInstance
     }
 
@@ -128,11 +127,6 @@ sigGivens typeMod sigs extraReps = (--eqDef <>
                                    GivenFun (GivenInst (g_tr rep) eqf)
                                    $ TCons "Eq" [e])
         toEqInst _ = Nothing
-        toEmptyLi e | Just rep <- genRep e = g rep
-                    | otherwise = Nothing
-           where g rep = Just ("[]_<["<> (T.pack $ show $ g_tr rep)<>"]>",
-                               extraFunc (g_empty_li rep))
-                    
 
         consName :: TypeSkeleton -> Maybe (Text, Func)
         consName t = g <$> genRep t
@@ -209,7 +203,6 @@ genRepFromProxy (Proxy :: Proxy a) = Gend {..}
           g_arb = DynGen (arbitrary :: Gen a)
           g_eq = Just (toDyn wrappedEq)
           --g_eq = Just (toDyn ((==) :: a -> a -> Bool))
-          g_empty_li = toDyn ([] :: [a])
           g_li_i = genRepFromProxy (Proxy :: Proxy [a])
           -- TODO: do something fancier here.
           -- we could add a Show here?
@@ -221,7 +214,6 @@ genRepFromProxyNoEq :: (Typeable a, Arbitrary a) =>
 genRepFromProxyNoEq (Proxy :: Proxy a) = Gend {..}
     where g_tr = typeRep (Proxy :: Proxy a)
           g_arb = DynGen (arbitrary :: Gen a)
-          g_empty_li = toDyn ([] :: [a])
           g_eq = Nothing
           g_li_i = genRepFromProxyNoEq (Proxy :: Proxy [a])
 
@@ -247,19 +239,7 @@ arith p = Map.fromList $
                  -- , ("(fromInteger @("<> trtext <> "))", toDyn fromI)
                  ]
                  )
-  where tr = typeRep p
-        trtext = T.pack $ show tr
-        skel = typeRepToTypeSkeleton tr
-        zero = (fromInteger 0) `asProxyTypeOf` p
-        eq a b = (==) (asProxyTypeOf a p) (asProxyTypeOf b p)
-        plus a b = (+) (asProxyTypeOf a p) (asProxyTypeOf b p)
-        mul a b = (*) (asProxyTypeOf a p) (asProxyTypeOf b p)
-        minus a b = (-) (asProxyTypeOf a p) (asProxyTypeOf b p)
-
-        sign = flip asProxyTypeOf p . signum
-        ab = flip asProxyTypeOf p . abs
-        neg = flip asProxyTypeOf p . negate
-        fromI = flip asProxyTypeOf p . fromInteger
+  where zero = (fromInteger 0) `asProxyTypeOf` p
 
 typeRepToTypeSkeleton :: TypeRep -> TypeSkeleton
 typeRepToTypeSkeleton tr
@@ -292,19 +272,6 @@ tyConOf :: Typeable a => Proxy a -> TyCon
 tyConOf = typeRepTyCon . typeRep
 
 
-prettyMatchRep :: Map.Map Text TypeSkeleton -> Map.Map Text [Text] -> Term -> [Text]
-prettyMatchRep skels groups (Term (Symbol t) _) | ty <- skeletonToTypeRep tsk =
-  let str = case ty of
-               Just t  -> T.pack (" :: " ++  show t)
-               _ -> T.pack (" :: " ++ show tsk)
-  in map (M.<> str) terms
-  where tsk = case skels Map.!? t of
-                Just r -> r
-                _ -> skels Map.! (T.pack $ tail $ T.unpack t) -- for generalization
-        terms = case groups Map.!? t of
-                  Just r -> r
-                  _ -> groups Map.! (T.pack $ tail $ T.unpack t)
-
 type Sig = Map Text Func
 
 data Func = SigFunc { sf_func :: Dynamic
@@ -320,7 +287,6 @@ moreGenerators (GivenFun (GivenVar tr _ g) grep) =
 moreGenerators _ = []
 
 data GivenInfo where
-    GivenDef :: Text -> GivenInfo
     GivenInst :: TypeRep -> Dynamic -> GivenInfo
     GivenVar :: TypeRep -> Int -> DynGen -> GivenInfo
 
@@ -328,18 +294,14 @@ data GivenInfo where
 deriving instance Show GivenInfo
 
 instance Eq GivenInfo where
-  (GivenDef t) == (GivenDef s) = s == t
   (GivenInst t _) == (GivenInst s _) = t == s
   (GivenVar t i _) == (GivenVar s j _) = (i == j) && (t == s)
 
 instance Ord GivenInfo where
-  compare (GivenDef t) (GivenDef s) = compare t s
   compare (GivenInst t _) (GivenInst s _) = compare t s
   compare (GivenVar t i _) (GivenVar s j _) = if t == s
                                               then compare i j
                                               else compare t s
-  compare (GivenDef {}) _ = LT
-  compare (GivenInst {}) (GivenDef {}) = GT
   compare (GivenInst {}) (GivenVar {}) = LT
   compare (GivenVar {}) _ = GT
 
@@ -389,10 +351,6 @@ sfFunc (GenFunc {..}) = gf_func
 sfFunc (GivenFun {given_info = GivenInst _ inst_f}) = inst_f
 sfFunc (GivenFun {}) = toDyn (() :: ()) 
 
-sfRequired :: Func -> Bool
-sfRequired (SigFunc {}) = True
-sfRequired _ = False
-
 sfTypeRep :: Func -> TypeSkeleton
 sfTypeRep (SigFunc{..}) = 
     case sf_rep of
@@ -410,16 +368,6 @@ con name fun = Map.singleton name $ (conFunc $ toDyn fun)
 extra :: Typeable a => Text -> a -> Sig
 extra name fun = Map.singleton name $ (extraFunc $ toDyn fun)
 
-skeletonToTypeRep :: TypeSkeleton -> Maybe TypeRep
-skeletonToTypeRep _ = Nothing
-
-eqLi :: (a -> a -> Bool) -> [a] -> [a] -> Bool
-eqLi f [] [] = True
-eqLi f (a:as) (b:bs) = if f a b then eqLi f as bs else False
-eqLi _ _ _ = False
-
-
-
 type VarVals = Map Text Dynamic
 
 
@@ -431,49 +379,6 @@ getVars sig (Term (Symbol sym) args) = do
             v <- toDyn <$> g
             return (vv <> (Map.singleton sym v))
         _ -> return vv 
-
-termVars :: Sig -> Term -> [(Text, GivenInfo)]
-termVars sig (Term "app" [_,f,v]) = concatMap (termVars sig) [f,v]
-termVars sig (Term "(==)" [_,lhs,rhs]) = concatMap (termVars sig) [lhs,rhs]
-termVars sig (Term (Symbol s) args)
-    | Just (GivenFun {given_info=v@(GivenVar _ _ _)}) <- sig Map.!? s = [(s,v)]
-    | otherwise = []
-
--- note: after this the lookup in the sig won't fire!
-renameSymbols :: Map Text Text -> Term -> Term
-renameSymbols changes ttr@(Term (Symbol s) args)
-    | Just s' <- changes Map.!? s = Term (Symbol s') subv
-    | otherwise = Term (Symbol s) subv
-    where subv = map (renameSymbols changes) args
-
-
--- We don't want to keep repeating the same laws,
--- and we want to have nicer names for variables
-simplifyVars :: Sig -> Term -> Term
-simplifyVars sig term = simplified
-  where howMany :: Term -> [[GivenInfo]]
-        gv_tr (GivenVar tr _ _) = tr
-        tvs = nub . map snd . termVars sig
-        howMany = groupBy ((==) `on` gv_tr) . sort . tvs
-        substs vs = catMaybes $ zipWith f vs [0..]
-          where f v@(GivenVar tr i g) j = 
-                    if i == j then Nothing
-                    else Just (gvToName v, gvToName $ GivenVar tr j g)
-        fewer_vars :: Map Text Text
-        fewer_vars = Map.unions $ map (Map.fromList . substs) $ howMany term
-        with_fewer_vars :: Term
-        with_fewer_vars = renameSymbols fewer_vars term
-        -- We want to avoid things where just the order of the variables 
-        -- is changed.
-        -- TODO: does this help? Is it safe/
-        whatOrder :: Term -> [[GivenInfo]]
-        whatOrder = groupBy ((==) `on` gv_tr) . sortBy (compare `on` gv_tr) . tvs
-        subst_order vs =  zipWith f vs [0..]
-          where f v@(GivenVar tr i g) j = (gvToName v, gvToName $ GivenVar tr j g)
-        reordered_vars :: Map Text Text
-        reordered_vars = Map.unions $ map (Map.fromList . subst_order) $
-                            whatOrder with_fewer_vars
-        simplified = renameSymbols reordered_vars with_fewer_vars
 
 generalizeType :: TypeSkeleton -> TypeSkeleton
 generalizeType (TCons s []) | s `elem` ["A","B","C","D","Acc"]
@@ -488,18 +393,6 @@ monomorphiseType (TCons s []) | s `elem` ["A","B","C","D","Acc"] = TCons "A" []
 monomorphiseType (TCons s r) = TCons s $ map monomorphiseType r
 monomorphiseType (TFun arg ret) = TFun (monomorphiseType arg) (monomorphiseType ret)
 monomorphiseType tsk = tsk
-
-dropNpTypes :: Term -> Term
-dropNpTypes (Term "app" [_,f,v]) = Term "app" [dropNpTypes f,dropNpTypes v]
-dropNpTypes (Term s [_]) = Term s []
-dropNpTypes (Term s args) = Term s $ map dropNpTypes args
-
-unifyAllVars :: Sig -> Term -> Term
-unifyAllVars sig (Term (Symbol s) _) |
-    Just (GivenFun {given_info=gv@GivenVar {}}) <- sig Map.!? s = 
-        Term "<_>" []
-        -- Term (Symbol $ gvToNameNoType gv) []
-unifyAllVars sig (Term s args) = Term s $ map (unifyAllVars sig) args
 
 toTemplate :: Sig -> Term -> Term
 toTemplate sig (Term (Symbol s) ty) |
@@ -541,7 +434,6 @@ termToGen _ sig vv (Term (Symbol sym) _) = do
         case vv Map.!? sym of
           Just var_val -> return var_val
           _ -> error "Variable not found!!"
-   Just (GivenFun {given_info = GivenDef "(==)"}) -> error "Givendef should not be"
    Just (GivenFun {given_info = GivenInst _ inst}) -> return inst
    Just sf@(SigFunc {}) -> return $ sfFunc sf
    Just gf@(GenFunc {}) -> return $ sfFunc gf

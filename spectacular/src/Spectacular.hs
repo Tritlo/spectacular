@@ -60,21 +60,6 @@ import Data.Function (on)
 import GHC.TopHandler
 import Data.Containers.ListUtils (nubOrdOn)
 
--- TODO: make this an e-graph or similar datastructure
-data Rewrite = Rewrite [Term] (IntMap Term) deriving (Show)
-
-rwrMap :: Rewrite -> IntMap Term
-rwrMap (Rewrite _ r) = r
-
-updateRewrites :: Either Term Term -> Rewrite -> IO Rewrite
-updateRewrites (Left (Term "(==)" [_,a,b])) rw =
-    return $ updRw a b rw
-updateRewrites (Right hole_rule) (Rewrite holeRules mp) =
-    return (Rewrite (hole_rule:holeRules) mp)
-updateRewrites _ r = return r
-
-
-
 data StEcta = StEcta { scope_comps  :: Comps,
                       any_arg       :: Node Symbol,
                       eq_insts      :: Map TypeSkeleton (T.Text, Dynamic),
@@ -84,40 +69,6 @@ data StEcta = StEcta { scope_comps  :: Comps,
                       given_sig     :: Sig
                       } deriving (Show)
 
-
-hasSmallerRewrite :: Rewrite -> Term -> Bool
-hasSmallerRewrite rw@(Rewrite _ rw_mp) t@(Term _ args) =
- case rw_mp IM.!? (hash t) of
-   Just r -> termSize t <= termSize r
-   _ -> any (hasSmallerRewrite rw) args
-
-hasRewrite :: Rewrite -> Term -> Bool
-hasRewrite rw@(Rewrite _ rw_mp) t@(Term _ args) =
- case rw_mp IM.!? (hash t) of
-   Just r -> True
-   _ -> any (hasRewrite rw) args
-
-generalizedTerm :: IntMap T.Text -> Term -> [Term]
-generalizedTerm arbs t@(Term (Symbol tsy) [ty]) =
-    case arbs IM.!? (hash ty) of
-        Just el | tsy == el -> [t]
-        Just el -> [Term (Symbol el) [ty]]
-        _ -> []
-generalizedTerm arbs t@(Term "app" [ty,f,v]) =
-    let gf = (f:generalizedTerm arbs f)
-        gv = (v:generalizedTerm arbs v)
-        combs = [Term "app" [ty,f',v'] | f' <- gf, v' <- gv]
-    in case arbs IM.!? (hash ty) of
-        Just el -> (Term (Symbol el) [ty]):combs
-        _ -> combs
-generalizedTerm arbs t@(Term (Symbol tsy) []) =
-    [Term (Symbol el) [] | el <- IM.elems arbs]
-generalizedTerm arbs t@(Term "app" [f,v]) =
-    let gf = (f:generalizedTerm arbs f)
-        gv = (v:generalizedTerm arbs v)
-        combs = [Term "app" [f',v'] | f' <- gf, v' <- gv]
-    in [Term (Symbol el) [] | el <- IM.elems arbs] ++ combs
-generalizedTerm _ t = [t] -- shouldn't happend
 
 -- If there is a law that involves arbitrary xs and ys, it must in particular
 -- also hold whenever xs == ys. So it suffices to explore laws where we have
@@ -198,81 +149,11 @@ countVars sig (Term symbol args) =
 
 
 
-hasSubsumption :: Rewrite -> IntMap T.Text -> Term -> Maybe Term
-hasSubsumption rw@(Rewrite _ rw_mp) arbs t@(Term s args) =
-    L.find (flip IM.member rw_mp . hash) (generalizedTerm arbs t)
-
-hasSubsCanon :: Sig -> Rewrite -> IntMap T.Text -> Term -> Maybe Term
-hasSubsCanon sig rw@(Rewrite _ rw_mp) arbs t@(Term s args) =
-    L.find (flip IM.member rw_mp . hash
-            . canonicalize sig) (generalizedTerm arbs $ canonicalize sig t)
-
-hasAnySub :: Rewrite -> Term -> Bool
--- TODO: this is a LINEAR scan, we should be able to do a lot better.
-hasAnySub rw@(Rewrite seen _) t | any (termHoleEq $ dropNpTypes t) seen = True
-  where -- Equality on terms based on holes
-        termHoleEq :: Term -> Term -> Bool
-        termHoleEq  _ (Term (Symbol s) _) | T.isPrefixOf "<_" s = True
-        termHoleEq t1@(Term s1 a1) t2@(Term s2 a2) =
-            hash t1 == hash t2 || ( s1 == s2 && length a1 == length a2
-                                    && all (uncurry termHoleEq) (zip a1 a2))
-hasAnySub rw@(Rewrite seen _) (Term _ (_:args)) = any (hasAnySub rw) args
-hasAnySub _ _ = False
-
 typeSkeletonToTerm :: TypeSkeleton -> Term
 typeSkeletonToTerm (TCons s args)
     = Term (Symbol s) $ map typeSkeletonToTerm args
 typeSkeletonToTerm (TFun f v) =
     Term "->" [Term "(->)" [], typeSkeletonToTerm f, typeSkeletonToTerm v]
-
-termTyToTypeSkeleton  :: Term -> TypeSkeleton
-termTyToTypeSkeleton (Term "->" [Term "(->)" [], a, b]) =
-    TFun (termTyToTypeSkeleton a) (termTyToTypeSkeleton b)
-termTyToTypeSkeleton (Term (Symbol s) args) =
-    TCons s $ map termTyToTypeSkeleton args
-
-
--- [Note: re-writes]: We don't need to do the re-write if there is a smaller
--- version, because that will already have been seen.
-
--- [Note: Hole-rewrites]
--- perforate :: Term -> Term -> Term
--- perforate v t@(Term s args) | v == t = Term "_" args
---                             | otherwise = Term s $ map (perforate v) args
--- fillHole :: Term -> Term -> Term
--- fillHole fill (Term "_" args) = fill
--- fillHole fill (Term s args) = Term s (map (fillHole fill) args)
-
--- -- TODO: probably a lot better way to do his
--- matchHole :: (Term, Term) -> Term -> Term
--- matchHole rule@(typ,holed) term@(Term s args) =
---     case filled Map.!? term of
---         Just fill -> fill
---         -- We could probably reuse the filleds but eh.
---         _ -> Term s (map (matchHole rule) args)
---   where getOfType :: Term -> Term -> [Term]
---         getOfType typ t@(Term _ (tts:rest)) | typ == tts = (t:(concatMap (getOfType typ) rest))
---                                             | otherwise = concatMap (getOfType typ) rest
---         getOfType _ _ = []
---         filled = Map.fromList $ map (\fill -> (fillHole fill holed, fill))
---                               $ getOfType typ term
-
-updRw :: Term -> Term -> Rewrite -> Rewrite
-updRw a b (Rewrite hole_rules mp) =
-    let (sml,big) = if termSize a < termSize b
-                    then (a,b) else if termSize a == termSize b
-                                    then if length (show a) < length (show b)
-                                         then (a,b)
-                                         else (b,a)
-                                    else (b,a)
-    in -- traceShow (ppNpTerm big ++ " ==> " ++ ppNpTerm sml) $
-       Rewrite hole_rules (IM.insert (hash big) sml mp)
-
-applyRewrites :: Rewrite -> Node Symbol -> IO (Node Symbol)
-applyRewrites r n = return n
-
-initRewrites :: IO Rewrite
-initRewrites = return $ Rewrite [] IM.empty
 
 termSize :: Term -> Int
 termSize (Term s []) = 1
@@ -327,7 +208,6 @@ hasTemplate (Term (Symbol s) args) = T.isPrefixOf "<v" s || any hasTemplate args
 type TermSet = HS.HashSet Term
 
 data GoState = GoState {seen :: !IntSet, --hashed integers
-                        rwrts :: Rewrite,
                         unique_terms :: !(Map Term TermSet),
                         stecta :: StEcta,
                         so_far :: !Int,
@@ -398,22 +278,6 @@ tacularSpec' size phase extraReps sigs =
        mapM_ print (Map.assocs arb_insts)
        putStrLn ""
 
-       let isId :: Term -> Bool
-           isId (Term "(==)" [_, a,b]) = (hash a) == (hash b)
-           isId _ = False
-
-           mtk _ _ _ 0 = []
-           mtk _ anyArg False 1 = [anyArg]
-           mtk comps anyArg True 1 = [anyArg, SS.applyOperator comps]
-           mtk comps anyArg _ k = map constructApp [1.. (k-1)]
-            where
-                constructApp :: Int -> Node Symbol
-                constructApp i =
-                    mapp (union $ mtk comps anyArg False i)
-                         (union $ mtk comps anyArg True (k-i))
-
-
-
        putStrLn "Laws according to Haskell's (==):"
        putStrLn "---------------------------------"
        let qc_args = QC.stdArgs { QC.chatty = False,
@@ -423,11 +287,9 @@ tacularSpec' size phase extraReps sigs =
            -- TODO: add e-graphs and rewrites.
            go :: Int -> Int -> IO [String]
            go n phase  =
-                  do rwrts <- initRewrites
-                     let stecta@StEcta{..} = mkStecta sig monomorphiseType monomorphiseType
+                  do let stecta@StEcta{..} = mkStecta sig monomorphiseType monomorphiseType
                      go' GoState {seen = IntSet.empty,
                                   rewrite_terms = [],
-                                  rwrts = rwrts,
                                   unique_terms = Map.empty,
                                   stecta = stecta,
                                   so_far = 0,
@@ -500,8 +362,7 @@ tacularSpec' size phase extraReps sigs =
                             current_terms = [],..} = do
                 --putStrLn ("Checking " ++ (T.unpack $ ppTy tc) ++ " with size " ++ show lvl_num ++ "...")
 
-                let toText e = T.pack $ ppNpTerm $ npTerm e
-                    nextNode = union $ mtk scope_comps any_arg False cur_lvl
+                let nextNode = union $ tk scope_comps any_arg False cur_lvl
 
                 refreshCount "Reducing  ECTA" (" for " ++ show tc) "" cur_lvl so_far
                 let max_rounds = 100
@@ -544,8 +405,8 @@ tacularSpec' size phase extraReps sigs =
                             -- need only test once!
                             let nvs = 100
                                 qc_args' = qc_args {QC.maxSuccess = nvs}
-                            in collectStats $ (quickCheckBoolOnly qc_args' $
-                                                  dynProp $ termToGen eq_inst sig Map.empty t)
+                            in quickCheckBoolOnly qc_args' $
+                                   dynProp $ termToGen eq_inst sig Map.empty t
                         testAll :: Dynamic -> Sig -> [Term] -> IO (Maybe Term)
                         testAll eq_inst sig [] = return Nothing
                         testAll eq_inst sig (t:ts) =
@@ -610,7 +471,7 @@ tacularSpec' size phase extraReps sigs =
                                                     current_terms = terms,
                                                     unique_terms =
                                                       Map.adjust (HS.insert wip_rewritten) current_ty unique_terms,
-                                                    rwrts = rwrts',..}
+                                                    ..}
 
                         -- These tests are expensive, so we only do them for laws that hold.
                         Just t -> do
@@ -626,18 +487,6 @@ tacularSpec' size phase extraReps sigs =
                             --mapM_ print glaws
                             refreshCount "generalizing" "" ("(" ++ show (length glaws) ++ " possibilities...)") cur_lvl sf'
                             most_general <- fromMaybe t <$> testAllInOrderAsync eq_inst gsig glaws
-                            let (Term "(==)" [_,_,mgrhs]) = canonicalize gsig most_general
-
-                            -- Note: this should be t, because the variables
-                            -- don't exist outside here!
-                            rwrts''@(Rewrite s _)
-                                    <- do let npt = npTerm' t
-                                          r1 <- updateRewrites (Left $ npt) rwrts'
-                                          let npmg = npTerm' most_general
-                                          r2 <- if npt /= npmg
-                                                then updateRewrites (Left npmg) r1
-                                                else return r1
-                                          updateRewrites (Right mgrhs) r2
                             let law_str = (show n <> ". ") <> (ppNpTerm $ most_general)
                                 lsl = max 0 (80 - length law_str)
                             putStrLn ("\r" ++ law_str ++ replicate lsl ' ')
@@ -654,7 +503,6 @@ tacularSpec' size phase extraReps sigs =
                                go' GoState {
                                     seen = seen <> IntSet.singleton (hash np_term),
                                     so_far=sf',
-                                    rwrts = rwrts'',
                                     law_nums = ns,
                                     current_terms = terms,
                                     rewrite_terms = new_rws,
@@ -673,39 +521,14 @@ tacularSpec' size phase extraReps sigs =
                         -- we're probably missing out on some rewrites due to
                         -- us operating on the flipped term
 
-                        (wip_rewritten, rwrts') = (np_term, rwrts)
+                        wip_rewritten = np_term
        go size phase
-
-canonicalize :: Sig -> Term -> Term
-canonicalize sig = unifyAllVars sig . dropNpTypes
-
-npTerm :: Term -> Term
-npTerm (Term "filter" [_,
-                      Term "app" [_,
-                                  _,
-                                  Term "app" [_,
-                                              _,
-                                              Term "app" [_,
-                                                          _,
-                                                          Term "(==)" _ ,
-                                                          Term eqi _],
-                                              lhs],
-                                  rhs ]])
-            = Term "(==)" [Term eqi [], npTerm lhs, npTerm rhs]
-npTerm (Term "app" [t,_,a,v]) =  (Term "app" $ [t, npTerm a, npTerm v])
-npTerm t = t
 
 npTerm' :: Term -> Term
 npTerm' (Term "filter" [_,term]) = npTerm' term
 npTerm' (Term "app" [t,_,a,v]) =  (Term "app" $ [t, npTerm' a, npTerm' v])
 npTerm' t = t
 
-
-showNpTerm :: Term -> String
-showNpTerm = ppTerm' 0
- where ppTerm' n (Term "app" ns) = intercalate "\n" $ ((replicate n ' ' ++ "app" ):(map ((replicate (n+2) ' ' ++) . ppTerm' (n+2)) ns))
-       ppTerm' 0 (Term "(==)" [_, lhs, rhs]) = intercalate "\n"  [ppTerm' 0 lhs, ppTerm' 0 rhs]
-       ppTerm' _ t = show t
 
 ppNpTerm :: Term -> String
 ppNpTerm t | (Term "(==)" [_, lhs, rhs]) <- t = ppTerm' False lhs <> " == " <> ppTerm' False rhs
@@ -738,14 +561,6 @@ refreshCount pre mid post size i = putStr (o ++ fill ++ "\r") >> flushStdHandles
         o = if length (o' ++ post) <= 120 then o' ++ post
             else (take 117 (o' ++ post)) ++ "..."
         fill = replicate (max 0 (length o - 120)) ' '
-
-ppTy :: TypeSkeleton -> T.Text
-ppTy (TCons t []) = t
-ppTy (TCons "[]" r) = "[" <> (mconcat $ intersperse " " $ map ppTy r) <> "]"
-ppTy (TCons "(,)" r) = "(" <> (mconcat $ intersperse "," $ map ppTy r) <> ")"
-ppTy (TCons t r) = t <> (mconcat $ " ":(intersperse " " $ map ppTy r))
-ppTy (TVar v) = v
-ppTy (TFun arg ret) = "(" <> ppTy arg <> " -> " <> ppTy ret <> ")"
 
 -- TODO:
 -- 2. knuth-bendix completion algorithm (we're almost there)
