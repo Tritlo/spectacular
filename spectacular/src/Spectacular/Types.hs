@@ -14,7 +14,6 @@ import GHC.Generics (Generic)
 import Data.Typeable
 import Data.Char (toLower)
 import qualified Data.Text as T
-import qualified Data.Monoid as M
 import Data.CFTA.Symbol (Symbol (Symbol))
 import qualified Data.CFTA.Term as CT
 import Data.Proxy
@@ -51,19 +50,26 @@ pattern Term :: Symbol -> [Term] -> Term
 pattern Term s ts = CT.Node s ts
 {-# COMPLETE Term #-}
 
-newtype A = A M.Any deriving (Typeable, Eq, Show, Ord)
-newtype B = B M.Any deriving (Typeable, Eq, Show, Ord)
-newtype C = C M.Any deriving (Typeable, Eq, Show, Ord)
-newtype D = D M.Any deriving (Typeable, Eq, Show, Ord)
-newtype Acc = Acc M.Any deriving (Typeable, Eq, Show, Ord)
+-- | The types that stand for type variables in a signature. Each type has
+-- many values, so that a law that holds only for a small type does not
+-- pass the tests. QuickSpec tests type variables at Int too.
+newtype A = A Int deriving (Typeable, Eq, Show, Ord)
+newtype B = B Int deriving (Typeable, Eq, Show, Ord)
+newtype C = C Int deriving (Typeable, Eq, Show, Ord)
+newtype D = D Int deriving (Typeable, Eq, Show, Ord)
+newtype Acc = Acc Int deriving (Typeable, Eq, Show, Ord)
 
 
 deriving instance Arbitrary A
 deriving instance QC.CoArbitrary A
 deriving instance Arbitrary B
+deriving instance QC.CoArbitrary B
 deriving instance Arbitrary C
+deriving instance QC.CoArbitrary C
 deriving instance Arbitrary D
+deriving instance QC.CoArbitrary D
 deriving instance Arbitrary Acc
+deriving instance QC.CoArbitrary Acc
 
 data GeneratedInstance = Gend {
     g_tr :: TypeRep,
