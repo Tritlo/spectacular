@@ -63,6 +63,10 @@ executable bench-octonions
   import: bench
   main-is: Octonions.hs
 
+executable bench-huge-lists
+  import: bench
+  main-is: HugeLists.hs
+
 executable bench-regex
   import: bench
   main-is: Regex.hs
