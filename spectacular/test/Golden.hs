@@ -24,7 +24,7 @@ posIntReps _ = Nothing
 -- | The name of each golden file and the run that gives its laws.
 cases :: [(String, IO [String])]
 cases =
-  [ ("lists-4", tacularSpec' 4 1 (const Nothing)
+  [ ("lists-4", discoverMonomorphic 4 (const Nothing)
       [ con "reverse" (reverse :: [A] -> [A])
       , con "++" ((++) :: [A] -> [A] -> [A])
       , con "[]" ([] :: [A])
@@ -32,17 +32,17 @@ cases =
       , con "length" (length :: [A] -> Int)
       , con "concat" (concat :: [[A]] -> [A])
       , arith (Proxy :: Proxy Int) ])
-  , ("list-monad-4", tacularSpec' 4 1 (const Nothing)
+  , ("list-monad-4", discoverMonomorphic 4 (const Nothing)
       [ con "return" (return :: A -> [A])
       , con ">>=" ((>>=) :: [A] -> (A -> [B]) -> [B])
       , con "++" ((++) :: [A] -> [A] -> [A]) ])
-  , ("mini-list-4", tacularSpec' 4 1 (const Nothing)
+  , ("mini-list-4", discoverMonomorphic 4 (const Nothing)
       [ con "reverse" (reverse :: [A] -> [A])
       , con "[]" ([] :: [A])
       , con "null" (null :: [A] -> Bool)
       , con "True" True
       , con "False" False ])
-  , ("gcd-3", tacularSpec' 3 1 posIntReps
+  , ("gcd-3", discoverMonomorphic 3 posIntReps
       [ con "0" (P 0)
       , con "21" (P 21)
       , con "1029" (P 1029)

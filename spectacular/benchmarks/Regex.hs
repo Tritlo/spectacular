@@ -122,7 +122,7 @@ extraReps _ = Nothing
 
 main = do
   [s,p] <- map read <$> getArgs
-  res <- tacularSpec' s p extraReps [
+  res <- experimentalPhases s p extraReps [
     con "char" (Char :: Sym -> Regex Sym),
     con "any" (AnyChar :: Regex Sym),
     con "e" (Epsilon :: Regex Sym),

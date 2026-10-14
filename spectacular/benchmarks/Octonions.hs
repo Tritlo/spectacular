@@ -60,7 +60,7 @@ extraReps _ = Nothing
 main = do
   [s,p] <- map read <$> getArgs
   --tacularSpec' 7 3 extraReps [
-  res <- tacularSpec' s p extraReps [
+  res <- experimentalPhases s p extraReps [
     con "*" ((*) :: It -> It -> It),
     (con "inv" (recip :: It -> It)),
     con "1" (1 :: It)]

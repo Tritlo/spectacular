@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 import Spectacular
 
-main = tacularSpec' 7 3 (const Nothing)  [
+main = experimentalPhases 7 3 (const Nothing)  [
   con "head" (head :: [A] -> A),
   con "cons" ((:) :: A -> [A] -> [A]),
   con "++" ((++) :: [A] -> [A] -> [A]),

@@ -15,7 +15,7 @@ usort (a:as) = usort (filter (<= a) as)
 
 main = do
   [s,p] <- map read <$> getArgs
-  res <- tacularSpec' s p (const Nothing) [
+  res <- experimentalPhases s p (const Nothing) [
     con "length" (length :: [A] -> Int),
     con "sort" (sort :: [Int] -> [Int]),
     con "scanr" (scanr :: (A -> B -> B) -> B -> [A] -> [B]),

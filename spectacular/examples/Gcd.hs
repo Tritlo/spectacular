@@ -17,7 +17,7 @@ instance Arbitrary PosInt where
 extraReps (TCons "PosInt" []) = Just $ genRepFromProxy (Proxy :: Proxy PosInt)
 extraReps _ = Nothing
 
-main = tacularSpec' 3 1 extraReps [
+main = discoverMonomorphic 3 extraReps [
   con "0"    (P 0 :: PosInt),
   con "21"   (P 21 :: PosInt),
   con "1029" (P 1029 :: PosInt),

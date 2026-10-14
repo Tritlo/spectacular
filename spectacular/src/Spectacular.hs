@@ -5,7 +5,8 @@ module Spectacular (
     module Spectacular.Types,
     module Data.Proxy,
     tacularSpec,
-    tacularSpec'
+    discoverMonomorphic,
+    experimentalPhases
 ) where
 
 import qualified Data.Map.Strict as Map
@@ -230,20 +231,30 @@ data GoState = GoState {seen :: !IntSet, --hashed integers
                         phase_number :: Int
                         } deriving (Show)
 
+-- | Print the laws of a signature, with terms up to the size that the first
+-- program argument gives (6 by default). The types are monomorphic, as in
+-- 'discoverMonomorphic'.
 tacularSpec :: [Sig] -> IO ()
 tacularSpec sigs =
     do args <- Env.getArgs
        let size = case args of
                     arg:_ | Just n <- TR.readMaybe arg -> n
                     _ -> 6
-       let phase = case args of
-                    _:arg:_ | Just n <- TR.readMaybe arg -> n
-                    _ -> 3
-       _ <- tacularSpec' size phase (const Nothing) sigs
+       _ <- discoverMonomorphic size (const Nothing) sigs
        return ()
 
-tacularSpec' :: Int -> Int -> (TypeSkeleton -> (Maybe GeneratedInstance)) -> [Sig] -> IO [String]
-tacularSpec' size phase extraReps sigs =
+-- | The laws of a signature with terms up to a size. The types are
+-- monomorphic: A, B, C, D, and Acc all become A (phase 1). The function
+-- gives the generators and the equalities of other types.
+discoverMonomorphic :: Int -> (TypeSkeleton -> Maybe GeneratedInstance) -> [Sig] -> IO [String]
+discoverMonomorphic size = experimentalPhases size 1
+
+-- | The laws of a signature, with the phases from 1 to the given phase.
+-- Phases 2 to 4 are experimental. Phase 2 keeps A, B, C, D, and Acc apart.
+-- Phases 3 and 4 generalize the types of the functions, and their tests
+-- coerce values between types with unsafeCoerce (see 'unsafeApply').
+experimentalPhases :: Int -> Int -> (TypeSkeleton -> (Maybe GeneratedInstance)) -> [Sig] -> IO [String]
+experimentalPhases size phase extraReps sigs =
     do let sig = mconcat sigs
            mkStecta sig givenTrans skelTrans =
                     StEcta { any_arg = ag,

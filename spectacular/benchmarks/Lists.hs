@@ -7,7 +7,7 @@ import System.Environment (getArgs)
 main = do
   [s,p] <- map read <$> getArgs
   --tacularSpec' 7 3 extraReps [
-  res <- tacularSpec' s p (const Nothing) [
+  res <- experimentalPhases s p (const Nothing) [
     con "reverse" (reverse :: [A] -> [A]),
     con "++" ((++) :: [A] -> [A] -> [A]),
     con "[]" ([] :: [A]),
