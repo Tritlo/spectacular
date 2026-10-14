@@ -288,7 +288,7 @@ runPhase env@Settings{..} size stecta@StEcta{..} = go [ (lvl, tc) | lvl <- [1 ..
         !folded <- return $ refold reduced
         -- Each accepting run gives one term. The terms come in the order
         -- of kboCompare, so that the laws do not depend on the order in
-        -- which microcfta interned the nodes and the edges.
+        -- which cfta interned the nodes and the edges.
         let terms = map snd $ sortBy (kboCompare (isGivenVar compl_sig) `on` fst)
                         [ (npTerm' t, t) | (t, _) <- runs "Mu" folded ]
         -- We want to display a message once the first term is found.

@@ -19,7 +19,7 @@ common deps
   build-depends: base ^>= 4.22,
                  text,
                  containers,
-                 microcfta,
+                 cfta,
                  QuickCheck >= 2.15 && < 2.19,
                  hashable,
                  unordered-containers

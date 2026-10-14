@@ -2,7 +2,7 @@ with-compiler: ghc-9.14.1
 
 packages: spectacular/
 
--- microcfta is not on Hackage. Pin a commit of the microecta repository.
+-- cfta is not on Hackage. Pin a commit of the microecta repository.
 -- For local development against a checkout, use a gitignored
 -- cabal.project.dev that lists the checkout in packages, and build with
 -- --project-file=cabal.project.dev. A cabal.project.local does not work:
@@ -11,5 +11,5 @@ packages: spectacular/
 source-repository-package
     type: git
     location: https://github.com/Tritlo/microecta.git
-    tag: 8e393e622911f71cb0c466a53fb80eaa02d3f82f
-    subdir: microcfta
+    tag: 7bfb69d1504786d8be8d61151b3c7cba25cfb7ba
+    subdir: cfta

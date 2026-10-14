@@ -1,6 +1,6 @@
-Baseline of the laws that microspectacular finds.
+Baseline of the laws that Spectacular finds.
 
-GHC 9.14.1, microcfta 8e393e62, on the WSL2 development machine, for
+GHC 9.14.1, cfta 7bfb69d1, on the WSL2 development machine, for
 the code of the commit that holds this file. Each run is phase 1 with
 the fixed QuickCheck seed, so the laws are the same in each run. The
 law files hold the numbered law lines of the output. The last two
@@ -8,10 +8,10 @@ runs are the timing cells: compare their allocation and their time
 before and after a change.
 
 run              program            args  laws  elapsed s    bytes allocated  max residency
-gcd-3-1          example-gcd                 6      0.006          7,243,080         61,264
-list-monad-5-1   bench-list-monad   5 1      4      0.008         20,593,968        542,112
-lists-5-1        bench-lists        5 1     13      0.025         81,296,488      1,592,728
-octonions-4-1    bench-octonions    4 1      5      0.030         41,750,584        407,552
-regex-4-1        bench-regex        4 1     17      0.560      5,046,024,752        765,656
-lists-9-1        bench-lists        9 1     15     21.818    176,883,461,192     86,852,424
-huge-lists-7-1   bench-huge-lists   7 1     94      8.402     54,390,065,544     75,754,312
+gcd-3-1          example-gcd                 6      0.005          7,243,080         61,288
+list-monad-5-1   bench-list-monad   5 1      4      0.011         20,593,968        542,112
+lists-5-1        bench-lists        5 1     13      0.027         81,296,488      1,592,728
+octonions-4-1    bench-octonions    4 1      5      0.028         41,750,584        407,552
+regex-4-1        bench-regex        4 1     17      0.704      5,046,024,752        765,656
+lists-9-1        bench-lists        9 1     15     23.649    176,883,461,192     86,852,424
+huge-lists-7-1   bench-huge-lists   7 1     94      8.805     54,390,065,544     75,754,312
