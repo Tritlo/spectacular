@@ -50,6 +50,9 @@ type Term = CT.Term Symbol
 pattern Term :: Symbol -> [Term] -> Term
 pattern Term s ts = CT.Node s ts
 {-# COMPLETE Term #-}
+-- The matcher inlines, as the matcher of 'CT.Node' does, so that a match
+-- does not build the list of the children.
+{-# INLINE Term #-}
 
 -- | The types that stand for type variables in a signature. Each type has
 -- many values, so that a law that holds only for a small type does not
