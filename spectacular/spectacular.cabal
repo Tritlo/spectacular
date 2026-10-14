@@ -32,7 +32,8 @@ library
     Spectacular,
     Spectacular.Types,
     Spectacular.Utils,
-    Spectacular.DecisionTree
+    Spectacular.DecisionTree,
+    Spectacular.Rewriting
 
 
 executable spectacular
