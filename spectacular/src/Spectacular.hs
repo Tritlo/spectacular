@@ -157,15 +157,15 @@ termSize (Term s args) = 1 + sum (map termSize args)
 -- This is ordered rewriting, as in Twee: a law that the order cannot
 -- orient, such as commutativity, rewrites an instance only when the
 -- instance gets smaller.
-reducible :: [(Term, Term)] -> Term -> Bool
-reducible rules t =
+reducible :: (Symbol -> Bool) -> [(Term, Term)] -> Term -> Bool
+reducible isVar rules t =
     any rewrites rules ||
     case t of
-      Term "app" [_, f, v] -> reducible rules f || reducible rules v
+      Term "app" [_, f, v] -> reducible isVar rules f || reducible isVar rules v
       _ -> False
   where
     rewrites (l, r) = case matchTemplate l t Map.empty of
-        Just s | Just r' <- instantiate s r -> kboGreater t r'
+        Just s | Just r' <- instantiate s r -> kboCompare isVar t r' == GT
         _ -> False
 
 -- | Replace the template variables of a template by their terms.
@@ -193,25 +193,30 @@ matchTemplate (Term a [ty]) (Term b [ty']) s
     | a == b && ty == ty' = Just s
 matchTemplate _ _ _ = Nothing
 
--- | The Knuth-Bendix order on ground terms: s > t. Each symbol has the
--- weight 1. An application is the binary symbol app, which is above the
--- other symbols, and the other symbols compare by their names. The
--- generated variables of a term are constants here. The order is
--- well-founded and closed under contexts, so rewriting with it ends.
-kboGreater :: Term -> Term -> Bool
-kboGreater s t = weight s > weight t || (weight s == weight t && sameWeight)
+-- | The Knuth-Bendix order on ground terms. Each symbol has the weight 1.
+-- An application is the binary symbol app, which is above the other
+-- symbols. Of the other symbols, the generated variables are below the
+-- constants, so that the more general terms come first, and symbols of one
+-- kind compare by their names, then by their types. The generated
+-- variables of a term are constants here. The order is total,
+-- well-founded, and closed under contexts, so rewriting with it ends.
+kboCompare :: (Symbol -> Bool) -> Term -> Term -> Ordering
+kboCompare isVar s t = compare (weight s) (weight t) <> sameWeight s t
   where
     weight (Term "app" [_, f, v]) = 1 + weight f + weight v
     weight _ = 1 :: Int
-    sameWeight = case (s, t) of
-        (Term "app" [_, f, v], Term "app" [_, g, u]) -> lexGreater [f, v] [g, u]
-        (Term "app" _, _) -> True
-        (_, Term "app" _) -> False
-        (Term a _, Term b _) -> a > b
-    lexGreater (a:as) (b:bs)
-        | a == b = lexGreater as bs
-        | otherwise = kboGreater a b
-    lexGreater _ _ = False
+    sameWeight (Term "app" [_, f, v]) (Term "app" [_, g, u]) =
+        kboCompare isVar f g <> kboCompare isVar v u
+    sameWeight (Term "app" _) _ = GT
+    sameWeight _ (Term "app" _) = LT
+    sameWeight (Term a tys) (Term b tys') =
+        compare (not (isVar a)) (not (isVar b)) <> compare a b <> compare tys tys'
+
+-- | Whether a symbol is a generated variable of the signature.
+isGivenVar :: Sig -> Symbol -> Bool
+isGivenVar sig (Symbol x) = case sig Map.!? x of
+    Just (GivenFun {given_info = GivenVar {}}) -> True
+    _ -> False
 
 
 type TermSet = HS.HashSet Term
@@ -364,8 +369,11 @@ runPhase env@Settings{..} size stecta@StEcta{..} = go [ (lvl, tc) | lvl <- [1 ..
         let !reduced = searchSpace stecta lvl tc
         refreshCount progress "Refolding ecta" (" for " ++ show tc) "" lvl (so_far s)
         !folded <- return $ refold reduced
-        -- Each accepting run gives one term, as with termsPrune.
-        let terms = map fst $ runs "Mu" folded
+        -- Each accepting run gives one term. The terms come in the order
+        -- of kboCompare, so that the laws do not depend on the order in
+        -- which microcfta interned the nodes and the edges.
+        let terms = map snd $ sortBy (kboCompare (isGivenVar compl_sig) `on` fst)
+                        [ (npTerm' t, t) | (t, _) <- runs "Mu" folded ]
         -- We want to display a message once the first term is found.
         -- in particular, it hangs after this messages for HugeLists 6
         refreshCount progress "Finding first term " (" for " ++ show tc) "" lvl (so_far s)
@@ -398,7 +406,7 @@ consider :: Settings -> StEcta -> Int -> Term -> Search -> IO (Maybe String, Sea
 consider Settings{..} StEcta{..} lvl full_term s@Search{..}
      -- A known law rewrites the term to a smaller term, so the
      -- term is redundant.
-     | reducible rewrite_rules np_term = return (Nothing, s)
+     | reducible (isGivenVar compl_sig) rewrite_rules np_term = return (Nothing, s)
      | not (current_ty `Map.member` unique_terms) =
         return (Nothing, s { unique_terms = Map.insert current_ty (HS.singleton np_term) unique_terms,
                              seen = HS.insert np_term seen })

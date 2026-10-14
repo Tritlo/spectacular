@@ -1,16 +1,16 @@
 1. 0 == length []
 2. [] == reverse []
 3. length xs0_<[A]> == length (reverse xs0_<[A]>)
-4. xs0_<[A]> == ((++) xs0_<[A]>) []
-5. xs0_<[A]> == ((++) []) xs0_<[A]>
-6. [] == (map f0_<A -> A>) []
-7. xs0_<[A]> == reverse (reverse xs0_<[A]>)
+4. xs0_<[A]> == reverse (reverse xs0_<[A]>)
+5. xs0_<[A]> == ((++) xs0_<[A]>) []
+6. xs0_<[A]> == ((++) []) xs0_<[A]>
+7. [] == (map f0_<A -> A>) []
 8. length xs0_<[A]> == length ((map f0_<A -> A>) xs0_<[A]>)
-9. (map f0_<A -> A>) (reverse xs0_<[A]>) == reverse ((map f0_<A -> A>) xs0_<[A]>)
+9. reverse ((map f0_<A -> A>) xs0_<[A]>) == (map f0_<A -> A>) (reverse xs0_<[A]>)
 10. length (((++) xs0_<[A]>) xs1_<[A]>) == length (((++) xs0_<[A]>) (reverse xs1_<[A]>))
 11. length (((++) xs0_<[A]>) (concat xs0_<[[A]]>)) == length (((++) (concat xs0_<[[A]]>)) xs0_<[A]>)
 12. length (((++) xs0_<[A]>) xs1_<[A]>) == length (((++) (reverse xs0_<[A]>)) xs1_<[A]>)
-13. reverse (((++) xs0_<[A]>) xs1_<[A]>) == ((++) (reverse xs1_<[A]>)) (reverse xs0_<[A]>)
-14. ((++) xs0_<[A]>) (((++) xs1_<[A]>) xs2_<[A]>) == ((++) (((++) xs0_<[A]>) xs1_<[A]>)) xs2_<[A]>
-15. ((++) xs0_<[A]>) (reverse xs1_<[A]>) == reverse (((++) xs1_<[A]>) (reverse xs0_<[A]>))
-16. ((++) (reverse xs0_<[A]>)) xs1_<[A]> == reverse (((++) (reverse xs1_<[A]>)) xs0_<[A]>)
+13. ((++) xs0_<[A]>) (reverse xs1_<[A]>) == reverse (((++) xs1_<[A]>) (reverse xs0_<[A]>))
+14. ((++) (reverse xs0_<[A]>)) xs1_<[A]> == reverse (((++) (reverse xs1_<[A]>)) xs0_<[A]>)
+15. reverse (((++) xs0_<[A]>) xs1_<[A]>) == ((++) (reverse xs1_<[A]>)) (reverse xs0_<[A]>)
+16. ((++) xs0_<[A]>) (((++) xs1_<[A]>) xs2_<[A]>) == ((++) (((++) xs0_<[A]>) xs1_<[A]>)) xs2_<[A]>
