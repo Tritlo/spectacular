@@ -216,19 +216,27 @@ kboGreater s t = weight s > weight t || (weight s == weight t && sameWeight)
 
 type TermSet = HS.HashSet Term
 
-data GoState = GoState {seen :: !(HS.HashSet Term),
-                        unique_terms :: !(Map Term TermSet),
-                        stecta :: StEcta,
-                        so_far :: !Int,
-                        lvl_nums :: ![Int],
-                        cur_lvl :: Int,
-                        law_nums :: [Int],
-                        current_terms :: [Term],
-                        -- The laws, as pairs of templates in both directions.
-                        rewrite_rules :: ![(Term, Term)],
-                        ty_cons_to_check :: [TypeSkeleton],
-                        phase_number :: Int
-                        } deriving (Show)
+-- | The state of the search. The phases and the sizes share it.
+data Search = Search {
+    -- | The terms that the search does not test again.
+    seen :: !(HS.HashSet Term),
+    -- | The representatives of each type.
+    unique_terms :: !(Map Term TermSet),
+    -- | The laws, as pairs of templates in both directions.
+    rewrite_rules :: ![(Term, Term)],
+    -- | The number of terms that the search examined.
+    so_far :: !Int,
+    -- | The number of laws that the search found.
+    law_count :: !Int
+    }
+
+-- | The settings of the search, which do not change.
+data Settings = Settings {
+    -- | Whether to show the progress on stderr.
+    progress :: Bool,
+    -- | The arguments of the tests.
+    qcArgs :: QC.Args
+    }
 
 -- | Print the laws of a signature, with terms up to the size that the first
 -- program argument gives (6 by default). The types are monomorphic, as in
@@ -252,35 +260,14 @@ discoverMonomorphic size = experimentalPhases size 1
 -- Phases 2 to 4 are experimental. Phase 2 keeps A, B, C, D, and Acc apart.
 -- Phases 3 and 4 generalize the types of the functions, and their tests
 -- coerce values between types with unsafeCoerce (see 'unsafeApply').
-experimentalPhases :: Int -> Int -> (TypeSkeleton -> (Maybe GeneratedInstance)) -> [Sig] -> IO [String]
+experimentalPhases :: Int -> Int -> (TypeSkeleton -> Maybe GeneratedInstance) -> [Sig] -> IO [String]
 experimentalPhases size phase extraReps sigs =
     do -- SPECTACULAR_PROGRESS=1 shows the progress of the search on stderr.
        progress <- (== Just "1") <$> Env.lookupEnv "SPECTACULAR_PROGRESS"
        let sig = mconcat sigs
-           mkStecta sig givenTrans skelTrans =
-                    StEcta { any_arg = ag,
-                             compl_sig = compl_sig,
-                             given_sig = givenSig,
-                             sig_ty_cons = Map.keys eq_insts,
-                             eq_insts = eq_insts,
-                             arb_insts = arbs }
-             where skels =  Map.assocs $ (skelTrans  . sfTypeRep) <$> sig
-                   (givenSig, eq_insts, arbs) = sigGivens givenTrans sig extraReps
-                   givens = Map.assocs $ (givenTrans . sfTypeRep) <$> givenSig
-                   compl_sig = sig <> givenSig
-                   sc = skels ++ givens
-                   ag = Node $ map (\(s,t) -> Edge s [t]) $
-                        -- we generalize the functions in the signature but not
-                        -- This means we don't select givens as candidates
-                        -- for application which is what we want, we don't
-                        -- want to apply variables to each other.
-                        ngnodes givens ++ gnodes skels
-                   addSyms st tt = map (Bi.bimap (Symbol . st) (tt . typeToFta))
-                   ngnodes = addSyms id id
-                   gnodes = addSyms id (generalize sc)
            StEcta { compl_sig = compl_sig,
                     arb_insts = arb_insts,
-                    sig_ty_cons = sig_ty_cons} = mkStecta sig id id
+                    sig_ty_cons = sig_ty_cons} = mkStecta extraReps sig id id
        putStrLn $ "In Scope (" ++ show (Map.size compl_sig) ++ " functions/constants):"
        putStrLn "---------------------------------"
        mapM_ (putStrLn . T.unpack) $ Map.keys compl_sig
@@ -298,276 +285,254 @@ experimentalPhases size phase extraReps sigs =
        putStrLn "---------------------------------"
        -- Each test run starts from the same seed, so that the laws are the
        -- same in each run.
-       let qc_args = QC.stdArgs { QC.chatty = False,
-                                  QC.maxShrinks = 0,
-                                  QC.maxSuccess = 100,
-                                  QC.replay = Just (mkQCGen 0, 0)}
+       let env = Settings { progress = progress,
+                            qcArgs = QC.stdArgs { QC.chatty = False,
+                                                  QC.maxShrinks = 0,
+                                                  QC.maxSuccess = 100,
+                                                  QC.replay = Just (mkQCGen 0, 0)} }
+       runPhases env size (max 1 (min 4 phase)) extraReps sig
 
-           -- TODO: add e-graphs and rewrites.
-           go :: Int -> Int -> IO [String]
-           go n phase  =
-                  do let stecta@StEcta{..} = mkStecta sig monomorphiseType monomorphiseType
-                     go' GoState {seen = HS.empty,
-                                  rewrite_rules = [],
-                                  unique_terms = Map.empty,
-                                  stecta = stecta,
-                                  so_far = 0,
-                                  cur_lvl = 0,
-                                  lvl_nums = [1..(n+1)],
-                                  law_nums = [1..],
-                                  phase_number = 1,
-                                  current_terms = [],
-                                  ty_cons_to_check = sig_ty_cons
-                                  }
-             where
-               go' :: GoState -> IO [String]
-               go' (GoState{ lvl_nums = [],
-                             phase_number = pn@(1),
-                            current_terms = [] , ..}) = do
-                    putStrLn $ "Fully monomorphic phase finished.." ++ show so_far ++ " terms examined."
-                    putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
-                    if (pn < phase) 
-                    then do
-                        putStrLn $ "Starting phase with more types...."
-                        let stecta@StEcta{..} = mkStecta sig id id
-                        go' GoState{ cur_lvl = 0,
-                                    phase_number = 2,
-                                    lvl_nums= [1..cur_lvl],
-                                    ty_cons_to_check = sig_ty_cons,
-                                    current_terms=[],..}
-                    else return []
-               go' (GoState{ lvl_nums = [],
-                             phase_number = pn@(2),
-                            current_terms = [] , ..}) = do
-                    putStrLn $ "Monomorphic phases finished.." ++ show so_far ++ " terms examined."
-                    putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
-                    if (pn < phase) 
-                    then do
-                        putStrLn $ "Starting mono-polymorphic phase...."
-                        let stecta@StEcta{..} = mkStecta sig monomorphiseType (generalizeType . monomorphiseType)
-                        go' GoState{ cur_lvl = 0,
-                                    phase_number = 3,
-                                    lvl_nums= [1..cur_lvl],
-                                    ty_cons_to_check = sig_ty_cons,
-                                    current_terms=[],..}
-                    else return []
-               go' (GoState{ lvl_nums = [],
-                             phase_number = pn@(3),
-                            current_terms = [] , ..}) = do
-                    putStrLn $ "Mono-polymorphic phase done! " ++ show so_far ++ " terms examined."
-                    putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
-                    if (pn < phase) 
-                    then do
-                        let stecta@StEcta{..} = mkStecta sig id generalizeType
-                        putStrLn $ "Starting fully-polymorphic phase...."
-                        go' GoState{ cur_lvl = 0,
-                                    phase_number = 4,
-                                    lvl_nums= [1..cur_lvl],
-                                    ty_cons_to_check = sig_ty_cons,
-                                    current_terms=[],..}
-                    else return []
-               go' (GoState{ lvl_nums = [],
-                            current_terms = [] , ..}) = do
-                 putStrLn $ "Done! " ++ show so_far ++ " terms examined."
-                 putStrLn $ show (sum $ map HS.size $ Map.elems unique_terms) ++ " unique terms discovered."
-                 return []
-               go' GoState {stecta=stecta@StEcta{..},
-                            ty_cons_to_check = [],
-                            lvl_nums = (lvl_num:lvl_nums),
-                            current_terms = current_terms@[],..} = do
-                    go' GoState {ty_cons_to_check = sig_ty_cons, cur_lvl = lvl_num, ..}
-               go' GoState {stecta=stecta@StEcta{..},
-                            ty_cons_to_check = (tc:ty_cons_to_check),
-                            current_terms = [],..} = do
-                let nextNode = union $ tk any_arg cur_lvl
+-- 1. The runtime signature and the search space.
 
-                refreshCount progress "Reducing  ECTA" (" for " ++ show tc) "" cur_lvl so_far
-                let max_rounds = 100
-                    !ecta = filterType nextNode $ typeToFta tc
-                    !reduced = fixWithin max_rounds (withoutRedundantEdges . reducePartially) ecta
-                refreshCount progress "Refolding ecta" (" for " ++ show tc) "" cur_lvl so_far
+-- | The runtime signature and the search space of one phase: the signature
+-- with the generated variables and the equalities, the node of the atoms,
+-- and the types to test. The first function changes the types of the
+-- generated variables, and the second the types of the functions.
+mkStecta :: (TypeSkeleton -> Maybe GeneratedInstance) -> Sig
+         -> (TypeSkeleton -> TypeSkeleton) -> (TypeSkeleton -> TypeSkeleton) -> StEcta
+mkStecta extraReps sig givenTrans skelTrans =
+         StEcta { any_arg = ag,
+                  compl_sig = compl_sig,
+                  given_sig = givenSig,
+                  sig_ty_cons = Map.keys eq_insts,
+                  eq_insts = eq_insts,
+                  arb_insts = arbs }
+  where skels =  Map.assocs $ skelTrans . sfTypeRep <$> sig
+        (givenSig, eq_insts, arbs) = sigGivens givenTrans sig extraReps
+        givens = Map.assocs $ givenTrans . sfTypeRep <$> givenSig
+        compl_sig = sig <> givenSig
+        sc = skels ++ givens
+        ag = Node $ map (\(s,t) -> Edge s [t]) $
+             -- we generalize the functions in the signature but not
+             -- This means we don't select givens as candidates
+             -- for application which is what we want, we don't
+             -- want to apply variables to each other.
+             ngnodes givens ++ gnodes skels
+        addSyms st tt = map (Bi.bimap (Symbol . st) (tt . typeToFta))
+        ngnodes = addSyms id id
+        gnodes = addSyms id (generalize sc)
 
-                !folded <- return $ refold reduced
+-- | The phases: the message at the end of the phase, the message at the
+-- start of the phase, and the changes of the types of the generated
+-- variables and of the functions.
+phases :: [(String, String, TypeSkeleton -> TypeSkeleton, TypeSkeleton -> TypeSkeleton)]
+phases =
+  [ ("Fully monomorphic phase finished..", "", monomorphiseType, monomorphiseType)
+  , ("Monomorphic phases finished..", "Starting phase with more types....", id, id)
+  , ("Mono-polymorphic phase done! ", "Starting mono-polymorphic phase....",
+     monomorphiseType, generalizeType . monomorphiseType)
+  , ("Done! ", "Starting fully-polymorphic phase....", id, generalizeType) ]
 
-                -- Each accepting run gives one term, as with termsPrune.
-                let terms = map fst $ runs "Mu" folded
-                -- We want to display a message once the first term is found.
-                -- in particular, it hangs after this messages for HugeLists 6
-                refreshCount progress "Finding first term " (" for " ++ show tc) "" cur_lvl so_far
-                case terms of
-                    (t:_) -> refreshCount progress "Folded, exploring " (" for " ++ show tc) "" cur_lvl so_far
-                    _ -> return ()
+-- | Run the phases from 1 to the given phase. The search state goes from
+-- one phase to the next.
+runPhases :: Settings -> Int -> Int -> (TypeSkeleton -> Maybe GeneratedInstance) -> Sig -> IO [String]
+runPhases env size lastPhase extraReps sig =
+    go (zip [1..] phases) Search { seen = HS.empty,
+                                   unique_terms = Map.empty,
+                                   rewrite_rules = [],
+                                   so_far = 0,
+                                   law_count = 0 }
+  where
+    go ((pn, (finished, starting, givenTrans, skelTrans)) : rest) s
+      | pn <= lastPhase = do
+          when (pn > 1) $ putStrLn starting
+          (laws, s') <- runPhase env size (mkStecta extraReps sig givenTrans skelTrans) s
+          putStrLn $ finished ++ show (so_far s') ++ " terms examined."
+          putStrLn $ show (sum $ map HS.size $ Map.elems (unique_terms s')) ++ " unique terms discovered."
+          (laws ++) <$> go rest s'
+    go _ _ = return []
 
-                go' GoState{ current_terms=terms,..}
-               go' GoState{law_nums = law_nums@(n:ns),
-                           current_terms = (full_term:terms),
-                           stecta = stecta@StEcta{..},
-                           ..}
-                 -- A known law rewrites the term to a smaller term, so the
-                 -- term is redundant.
-                 | reducible rewrite_rules np_term =
-                    go' GoState{current_terms = terms, ..}
-                 | Term "filter" [current_ty,_] <- full_term,
-                   not (current_ty `Map.member` unique_terms) =
-                    go' (GoState{current_terms = terms,
-                                unique_terms = Map.insert current_ty (HS.singleton np_term) unique_terms,
-                                seen = HS.insert np_term seen,
-                                ..})
-                 -- if we've seen it before, we can immediately skip.
-                 | np_term `HS.member` seen = skip seen
-                 -- We don't want terms that are all variables.
-                 | termSize np_term > 1,
-                    allFromSig given_sig np_term = skip (HS.insert np_term seen)
-                 | otherwise = do
-                    let other_terms = HS.toList $ unique_terms Map.! current_ty
-                        terms_to_test = map termToTest other_terms
-                         -- No need to run multiple tests if there are no variables!
-                        runTest eq_inst sig t =
-                            -- We test 100x per variable, but for constants we
-                            -- need only test once!
-                            let nvs = 100
-                                qc_args' = qc_args {QC.maxSuccess = nvs}
-                            in testProperty qc_args' $
-                                   dynProp $ termToGen eq_inst sig Map.empty t
-                        -- Test the candidate against the representatives in
-                        -- turn. Return the first representative that it
-                        -- equals, and whether a test threw.
-                        testAll :: Dynamic -> Sig -> [Term] -> IO (Maybe Term, Bool)
-                        testAll eq_inst sig [] = return (Nothing, False)
-                        testAll eq_inst sig (t:ts) =
-                            do r <- runTest eq_inst sig t
-                               case r of
-                                 TestPassed -> return (Just t, False)
-                                 TestFailed -> testAll eq_inst sig ts
-                                 Untestable -> (\(m, _) -> (m, True)) <$> testAll eq_inst sig ts
-                        testAllPar :: Dynamic -> Sig -> [Term] -> IO (Maybe Term, Bool)
-                        testAllPar eq_inst sig [] = return (Nothing, False)
-                        testAllPar eq_inst sig terms =
-                          do n <- CC.getNumCapabilities
-                             if n == 1
-                             then testAll eq_inst sig terms
-                             else if n >= length terms
-                                  then testAllPar' [] $ map (:[]) terms
-                                  else testAllPar' [] $ (chunks ((length terms) `div` n) terms)
-                          where firstSuccessful :: Bool -> [CCA.Async (Maybe Term, Bool)]
-                                                -> IO (Maybe Term, Bool)
-                                firstSuccessful u [] = return (Nothing, u)
-                                firstSuccessful u as = do
-                                     do (a,r@(m, u')) <- CCA.waitAny as
-                                        let as' = filter (/= a) as
-                                        case m of
-                                            Just _ -> do mapM_ CCA.cancel as'
-                                                         return r
-                                            _ -> firstSuccessful (u || u') as'
-                                testAllPar' :: [CCA.Async (Maybe Term, Bool)]
-                                            -> [[Term]] -> IO (Maybe Term, Bool)
-                                -- if there's only one, no need for async
-                                testAllPar' [] [] = return (Nothing, False)
-                                testAllPar' [] [c] = testAll eq_inst sig c
-                                -- if we don't have any more chunks to start, we
-                                -- just finish it
-                                testAllPar' as [] = firstSuccessful False as
-                                -- otherwise, we have to start the work (and we check if we've finished anything so far)
-                                testAllPar' as (c:cs) =
-                                    CCA.withAsync (testAll eq_inst sig c) $
-                                        \a -> testAllPar' (a:as) cs
-                        testAllInOrderAsync :: Dynamic -> Sig -> [Term] -> IO (Maybe Term)
-                        testAllInOrderAsync _ _ [] = return Nothing
-                        testAllInOrderAsync eq_inst sig (a:as) =
-                             CCA.withAsync (runTest eq_inst sig a) $ \aref ->
-                                 CCA.withAsync (testAllInOrderAsync eq_inst sig as) $ \asref -> do
-                                     ares <- CCA.wait aref
-                                     -- if the first one is succesful, we don't care
-                                     -- about the rest!
-                                     if ares == TestPassed
-                                     then do CCA.cancel asref
-                                             return (Just a)
-                                     else CCA.wait asref
+-- | Run one phase: the sizes from 1 to the given size, and for each size
+-- each type to test.
+runPhase :: Settings -> Int -> StEcta -> Search -> IO ([String], Search)
+runPhase env@Settings{..} size stecta@StEcta{..} = go [ (lvl, tc) | lvl <- [1 .. size], tc <- sig_ty_cons ]
+  where
+    go [] s = return ([], s)
+    go ((lvl, tc) : rest) s = do
+        refreshCount progress "Reducing  ECTA" (" for " ++ show tc) "" lvl (so_far s)
+        let !reduced = searchSpace stecta lvl tc
+        refreshCount progress "Refolding ecta" (" for " ++ show tc) "" lvl (so_far s)
+        !folded <- return $ refold reduced
+        -- Each accepting run gives one term, as with termsPrune.
+        let terms = map fst $ runs "Mu" folded
+        -- We want to display a message once the first term is found.
+        -- in particular, it hangs after this messages for HugeLists 6
+        refreshCount progress "Finding first term " (" for " ++ show tc) "" lvl (so_far s)
+        case terms of
+            (_:_) -> refreshCount progress "Folded, exploring " (" for " ++ show tc) "" lvl (so_far s)
+            _ -> return ()
+        (laws, s') <- considerAll lvl terms s
+        (more, s'') <- go rest s'
+        return (laws ++ more, s'')
+    considerAll _ [] s = return ([], s)
+    considerAll lvl (t : ts) s = do
+        (law, s') <- consider env stecta lvl t s
+        (more, s'') <- considerAll lvl ts s'
+        return (maybe more (: more) law, s'')
 
-                    refreshCount progress ("exploring " ++ (show current_ty)) ""
-                                 ("(" ++ (show $ length terms_to_test) ++ " to test...)") cur_lvl so_far
-                    (holds, untestable) <- testAllPar eq_inst compl_sig terms_to_test
+-- 2. The candidate terms.
 
+-- | The reduced automaton of the terms of a size and a type.
+searchSpace :: StEcta -> Int -> TypeSkeleton -> Node Symbol
+searchSpace StEcta{..} lvl tc =
+    let !ecta = filterType (union $ tk any_arg lvl) $ typeToFta tc
+    in fixWithin 100 (withoutRedundantEdges . reducePartially) ecta
 
-                    let sf' = so_far + 1
-                    case holds of
-                        Nothing -> do refreshCount progress ("exploring " ++ (show current_ty)) ""
-                                                   "" cur_lvl sf'
-                                      -- A test threw. The candidate or a
-                                      -- representative caused it, so test
-                                      -- the candidate alone. A candidate
-                                      -- that we cannot test does not become
-                                      -- a representative.
-                                      testable <- if untestable
-                                                  then (== TestPassed) <$>
-                                                         testProperty qc_args
-                                                           (dynProp $ selfEqualityGen eq_inst compl_sig wip_rewritten)
-                                                  else return True
-                                      -- A later phase enumerates the
-                                      -- representative again, so it goes
-                                      -- into seen too.
-                                      go' GoState { so_far = sf',
-                                                    current_terms = terms,
-                                                    unique_terms =
-                                                      if testable
-                                                      then Map.adjust (HS.insert wip_rewritten) current_ty unique_terms
-                                                      else unique_terms,
-                                                    seen =
-                                                      if testable
-                                                      then HS.insert np_term seen
-                                                      else seen,
-                                                    ..}
+-- 3. The test of a candidate, and the law that it gives.
 
-                        -- These tests are expensive, so we only do them for laws that hold.
-                        Just t -> do
-                            let (gsig, glaws) =
-                                  -- We have to be a bit careful about the order
-                                  -- of the generalized laws, because we test
-                                  -- them in order.
-                                        generalizeLaw compl_sig $ npTerm' t
+-- | Consider one candidate term. Prune it, or keep it as the first
+-- representative of its type, or test it against the representatives of
+-- its type. Give the law that the test finds, if any.
+consider :: Settings -> StEcta -> Int -> Term -> Search -> IO (Maybe String, Search)
+consider Settings{..} StEcta{..} lvl full_term s@Search{..}
+     -- A known law rewrites the term to a smaller term, so the
+     -- term is redundant.
+     | reducible rewrite_rules np_term = return (Nothing, s)
+     | not (current_ty `Map.member` unique_terms) =
+        return (Nothing, s { unique_terms = Map.insert current_ty (HS.singleton np_term) unique_terms,
+                             seen = HS.insert np_term seen })
+     -- if we've seen it before, we can immediately skip.
+     | np_term `HS.member` seen = return (Nothing, s { so_far = so_far + 1 })
+     -- We don't want terms that are all variables.
+     | termSize np_term > 1,
+        allFromSig given_sig np_term =
+        return (Nothing, s { so_far = so_far + 1, seen = HS.insert np_term seen })
+     | otherwise = do
+        let other_terms = HS.toList $ unique_terms Map.! current_ty
+            terms_to_test = map termToTest other_terms
+        refreshCount progress ("exploring " ++ show current_ty) ""
+                     ("(" ++ show (length terms_to_test) ++ " to test...)") lvl so_far
+        (holds, untestable) <- testAllPar qcArgs eq_inst compl_sig terms_to_test
+        let sf' = so_far + 1
+        case holds of
+            Nothing -> do
+                refreshCount progress ("exploring " ++ show current_ty) "" "" lvl sf'
+                -- A test threw. The candidate or a representative caused
+                -- it, so test the candidate alone. A candidate that we
+                -- cannot test does not become a representative.
+                testable <- if untestable
+                            then (== TestPassed) <$>
+                                   testProperty qcArgs
+                                     (dynProp $ selfEqualityGen eq_inst compl_sig np_term)
+                            else return True
+                -- A later phase enumerates the representative again, so
+                -- it goes into seen too.
+                return (Nothing,
+                        if testable
+                        then s { so_far = sf',
+                                 unique_terms = Map.adjust (HS.insert np_term) current_ty unique_terms,
+                                 seen = HS.insert np_term seen }
+                        else s { so_far = sf' })
+            -- These tests are expensive, so we only do them for laws that hold.
+            Just t -> do
+                let n = law_count + 1
+                    (gsig, glaws) =
+                      -- We have to be a bit careful about the order
+                      -- of the generalized laws, because we test
+                      -- them in order.
+                      generalizeLaw compl_sig $ npTerm' t
+                -- If we don't find a more general law, we use the one
+                -- we found.
+                refreshCount progress "generalizing" "" ("(" ++ show (length glaws) ++ " possibilities...)") lvl sf'
+                most_general <- fromMaybe t <$> testAllInOrderAsync qcArgs eq_inst gsig glaws
+                let law_str = (show n <> ". ") <> ppNpTerm most_general
+                when progress $ hPutStr stderr "\r\ESC[K"
+                putStrLn law_str
+                refreshCount progress ("exploring " ++ show current_ty) "" "" lvl sf'
+                return (Just law_str,
+                        s { seen = HS.insert np_term seen,
+                            so_far = sf',
+                            law_count = n,
+                            rewrite_rules = lawRules gsig most_general ++ rewrite_rules })
+  where -- wrt variable renaming
+        np_term = npTerm' full_term
+        Term "filter" [current_ty,_] = full_term
 
-                            -- If we don't find a more general law, we use the one
-                            -- we found.
-                            refreshCount progress "generalizing" "" ("(" ++ show (length glaws) ++ " possibilities...)") cur_lvl sf'
-                            most_general <- fromMaybe t <$> testAllInOrderAsync eq_inst gsig glaws
-                            let law_str = (show n <> ". ") <> (ppNpTerm $ most_general)
-                            when progress $ hPutStr stderr "\r\ESC[K"
-                            putStrLn law_str
-                            refreshCount progress  ("exploring " ++ (show current_ty))  ""
-                                           "" cur_lvl sf'
-                            -- The rules of the law: its two sides as
-                            -- templates, with the variables of the most
-                            -- general law, in both directions.
-                            let new_rules = case most_general of
-                                    Term "(==)" [_, l, r] ->
-                                        let l' = toTemplate gsig l
-                                            r' = toTemplate gsig r
-                                        in [(l', r'), (r', l')]
-                                    _ -> []
-                            (law_str:) <$>
-                               go' GoState {
-                                    seen = HS.insert np_term seen,
-                                    so_far=sf',
-                                    law_nums = ns,
-                                    current_terms = terms,
-                                    rewrite_rules = new_rules ++ rewrite_rules,
-                                    ..}
-                  where skip seen = do go' GoState{so_far = so_far+1,
-                                                    current_terms = terms, ..}
-                        -- wrt variable renaming
-                        np_term = npTerm' full_term
-                        Term "filter" [current_ty,_] = full_term
+        term_eq_insts = Map.fromList $ map (Bi.first typeSkeletonToTerm)
+                                     $ Map.assocs eq_insts
+        (eq_txt, eq_inst) = term_eq_insts Map.! current_ty
+        termToTest o = Term "(==)" [ Term (Symbol eq_txt) [], o, np_term]
 
-                        term_eq_insts = Map.fromList $ map (Bi.first typeSkeletonToTerm)
-                                                     $ Map.assocs eq_insts
-                        (eq_txt, eq_inst) = term_eq_insts Map.! current_ty
-                        termToTest o = Term "(==)" [ Term (Symbol eq_txt) []
-                                                   , o, wip_rewritten]
-                        -- we're probably missing out on some rewrites due to
-                        -- us operating on the flipped term
+-- | The rules of a law: its two sides as templates, with the variables of
+-- the law, in both directions.
+lawRules :: Sig -> Term -> [(Term, Term)]
+lawRules gsig (Term "(==)" [_, l, r]) = [(l', r'), (r', l')]
+  where l' = toTemplate gsig l
+        r' = toTemplate gsig r
+lawRules _ _ = []
 
-                        wip_rewritten = np_term
-       go size phase
+-- | Test an equation: the property that its two sides are equal.
+runTest :: QC.Args -> Dynamic -> Sig -> Term -> IO TestResult
+runTest qcArgs eq_inst sig t = testProperty qcArgs $ dynProp $ termToGen eq_inst sig Map.empty t
+
+-- | Test the equations in turn. Return the first equation that holds, and
+-- whether a test threw.
+testAll :: QC.Args -> Dynamic -> Sig -> [Term] -> IO (Maybe Term, Bool)
+testAll _ _ _ [] = return (Nothing, False)
+testAll qcArgs eq_inst sig (t:ts) =
+    do r <- runTest qcArgs eq_inst sig t
+       case r of
+         TestPassed -> return (Just t, False)
+         TestFailed -> testAll qcArgs eq_inst sig ts
+         Untestable -> (\(m, _) -> (m, True)) <$> testAll qcArgs eq_inst sig ts
+
+-- | 'testAll' on one chunk of the equations for each capability.
+testAllPar :: QC.Args -> Dynamic -> Sig -> [Term] -> IO (Maybe Term, Bool)
+testAllPar _ _ _ [] = return (Nothing, False)
+testAllPar qcArgs eq_inst sig terms =
+  do n <- CC.getNumCapabilities
+     if n == 1
+     then testAll qcArgs eq_inst sig terms
+     else if n >= length terms
+          then testAllPar' [] $ map (:[]) terms
+          else testAllPar' [] $ chunks (length terms `div` n) terms
+  where firstSuccessful :: Bool -> [CCA.Async (Maybe Term, Bool)]
+                        -> IO (Maybe Term, Bool)
+        firstSuccessful u [] = return (Nothing, u)
+        firstSuccessful u as = do
+             do (a,r@(m, u')) <- CCA.waitAny as
+                let as' = filter (/= a) as
+                case m of
+                    Just _ -> do mapM_ CCA.cancel as'
+                                 return r
+                    _ -> firstSuccessful (u || u') as'
+        testAllPar' :: [CCA.Async (Maybe Term, Bool)]
+                    -> [[Term]] -> IO (Maybe Term, Bool)
+        -- if there's only one, no need for async
+        testAllPar' [] [] = return (Nothing, False)
+        testAllPar' [] [c] = testAll qcArgs eq_inst sig c
+        -- if we don't have any more chunks to start, we
+        -- just finish it
+        testAllPar' as [] = firstSuccessful False as
+        -- otherwise, we have to start the work (and we check if we've finished anything so far)
+        testAllPar' as (c:cs) =
+            CCA.withAsync (testAll qcArgs eq_inst sig c) $
+                \a -> testAllPar' (a:as) cs
+
+-- | Test the equations at the same time, and give the first one in the
+-- list that holds.
+testAllInOrderAsync :: QC.Args -> Dynamic -> Sig -> [Term] -> IO (Maybe Term)
+testAllInOrderAsync _ _ _ [] = return Nothing
+testAllInOrderAsync qcArgs eq_inst sig (a:as) =
+     CCA.withAsync (runTest qcArgs eq_inst sig a) $ \aref ->
+         CCA.withAsync (testAllInOrderAsync qcArgs eq_inst sig as) $ \asref -> do
+             ares <- CCA.wait aref
+             -- if the first one is succesful, we don't care
+             -- about the rest!
+             if ares == TestPassed
+             then do CCA.cancel asref
+                     return (Just a)
+             else CCA.wait asref
 
 npTerm' :: Term -> Term
 npTerm' (Term "filter" [_,term]) = npTerm' term
