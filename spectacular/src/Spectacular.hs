@@ -46,8 +46,7 @@ import Data.Function (on)
 import System.IO (hFlush, stdout)
 import Data.Containers.ListUtils (nubOrdOn)
 
-data StEcta = StEcta { scope_comps  :: Comps,
-                      any_arg       :: Node Symbol,
+data StEcta = StEcta { any_arg       :: Node Symbol,
                       eq_insts      :: Map TypeSkeleton (T.Text, Dynamic),
                       arb_insts     :: Map TypeSkeleton (T.Text, Func),
                       sig_ty_cons   :: [TypeSkeleton],
@@ -222,7 +221,7 @@ tacularSpec' :: Int -> Int -> (TypeSkeleton -> (Maybe GeneratedInstance)) -> [Si
 tacularSpec' size phase extraReps sigs =
     do let sig = mconcat sigs
            mkStecta sig givenTrans skelTrans =
-                    StEcta { scope_comps = sc, any_arg = ag,
+                    StEcta { any_arg = ag,
                              compl_sig = compl_sig,
                              given_sig = givenSig,
                              sig_ty_cons = Map.keys eq_insts,
@@ -343,7 +342,7 @@ tacularSpec' size phase extraReps sigs =
                go' GoState {stecta=stecta@StEcta{..},
                             ty_cons_to_check = (tc:ty_cons_to_check),
                             current_terms = [],..} = do
-                let nextNode = union $ tk scope_comps any_arg False cur_lvl
+                let nextNode = union $ tk any_arg cur_lvl
 
                 refreshCount "Reducing  ECTA" (" for " ++ show tc) "" cur_lvl so_far
                 let max_rounds = 100

@@ -34,27 +34,17 @@ filterType :: Node Symbol -> Node Symbol -> Node Symbol
 filterType n t =
   Node [mkEdge "filter" [t, n] (equalityConstraint $ mkEqConstraints [[path [0], path [1, 0]]])]
 
-constFunc :: Symbol -> Node Symbol -> Edge Symbol
-constFunc s t = Edge s [t]
-
-applyOperator :: Comps -> Node Symbol
-applyOperator comps = Node
-  [ constFunc
-    "$"
-    (generalize comps $ arrowType (arrowType var1 var2) (arrowType var1 var2))
-  , constFunc "id" (generalize comps  $ arrowType var1 var1)
-  ]
-
-tk :: Comps -> Node Symbol -> Bool -> Int -> [Node Symbol]
-tk _ _ _ 0 = []
-tk _ anyArg False 1 = [anyArg]
-tk comps anyArg True 1 = [anyArg, applyOperator comps]
-tk comps anyArg _ k = map constructApp [1 .. (k-1)]
+-- | The nodes of the terms with k leaves: the atoms, or the applications of
+-- the terms of i leaves to the terms of k - i leaves.
+tk :: Node Symbol -> Int -> [Node Symbol]
+tk _ 0 = []
+tk anyArg 1 = [anyArg]
+tk anyArg k = map constructApp [1 .. (k-1)]
  where
    constructApp :: Int -> Node Symbol
    constructApp i =
-      mapp (union $ tk comps anyArg False i)
-           (union $ tk comps anyArg True (k-i))
+      mapp (union $ tk anyArg i)
+           (union $ tk anyArg (k-i))
 
 mapp :: Node Symbol -> Node Symbol -> Node Symbol
 mapp n1 n2 = Node [
