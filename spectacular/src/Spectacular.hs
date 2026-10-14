@@ -258,8 +258,9 @@ discoverMonomorphic size = experimentalPhases size 1
 
 -- | The laws of a signature, with the phases from 1 to the given phase.
 -- Phases 2 to 4 are experimental. Phase 2 keeps A, B, C, D, and Acc apart.
--- Phases 3 and 4 generalize the types of the functions, and their tests
--- coerce values between types with unsafeCoerce (see 'unsafeApply').
+-- Phases 3 and 4 generalize the types of the functions. A test that needs a
+-- value at a type other than its own, apart from A to Acc, is untestable
+-- (see 'unsafeApply').
 experimentalPhases :: Int -> Int -> (TypeSkeleton -> Maybe GeneratedInstance) -> [Sig] -> IO [String]
 experimentalPhases size phase extraReps sigs =
     do -- SPECTACULAR_PROGRESS=1 shows the progress of the search on stderr.

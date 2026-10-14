@@ -380,15 +380,40 @@ toTemplate sig (Term (Symbol s) ty) |
          Term (Symbol $ "<v>" <> s) ty
 toTemplate sig (Term s args) = Term s $ map (toTemplate sig) args
  
--- When we generalize types, the types of the functions don't match, but
--- since we can coerce between A and B etc. we can actually apply the
--- function. In case the coerce is *wrong*, this error will be inside
--- the generator and so unobservable.
+-- | Apply a function to an argument. The types of the two can differ in
+-- A, B, C, D, and Acc, because the search changes the types of the terms
+-- but not the types of the values. These types all wrap Int, so the
+-- function can take the argument through unsafeCoerce. Any other
+-- difference raises an error, which makes the test untestable.
 unsafeApply :: Dynamic -> Dynamic -> Dynamic
-unsafeApply df@(Dynamic (TR.Fun _ tr) f) dx@(Dynamic _ x)
+unsafeApply df@(Dynamic (TR.Fun ta tr) f) dx@(Dynamic tx x)
  = case dynApply df dx of
     Just r -> r
-    _ -> Dynamic (unsafeCoerce tr) (unsafeCoerce f x)
+    Nothing
+      | sameUpToCarriers (TR.SomeTypeRep ta) (TR.SomeTypeRep tx) ->
+          Dynamic (unsafeCoerce tr) (unsafeCoerce f x)
+      | otherwise -> cannotApply df dx
+unsafeApply df dx = cannotApply df dx
+
+-- | The error for an application of two values whose types do not fit.
+cannotApply :: Dynamic -> Dynamic -> a
+cannotApply df dx =
+    error $ "unsafeApply: cannot apply " ++ show (dynTypeRep df) ++ " to " ++ show (dynTypeRep dx)
+
+-- | Whether two types are equal when A, B, C, D, and Acc are one type.
+sameUpToCarriers :: TypeRep -> TypeRep -> Bool
+sameUpToCarriers a b
+  | isCarrier ca && isCarrier cb = True
+  | otherwise = ca == cb && length as == length bs && and (zipWith sameUpToCarriers as bs)
+  where (ca, as) = splitTyConApp a
+        (cb, bs) = splitTyConApp b
+        isCarrier c = c `elem` carrierTyCons
+
+-- | The type constructors of A, B, C, D, and Acc.
+carrierTyCons :: [TyCon]
+carrierTyCons =
+  [ tyConOf (Proxy :: Proxy A), tyConOf (Proxy :: Proxy B), tyConOf (Proxy :: Proxy C)
+  , tyConOf (Proxy :: Proxy D), tyConOf (Proxy :: Proxy Acc) ]
 
 
 -- Note: should be npTermed
