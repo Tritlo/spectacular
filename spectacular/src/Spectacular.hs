@@ -35,10 +35,8 @@ import Data.Char (isAlphaNum)
 import qualified Control.Concurrent.Async as CCA
 import qualified Control.Concurrent as CC
 
-import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
 import qualified Data.IntMap.Strict as IM
-import Data.Hashable (hash)
 import qualified Data.HashSet as HS
 import Data.Function (on)
 import System.IO (hFlush, stdout)
@@ -217,7 +215,7 @@ kboGreater s t = weight s > weight t || (weight s == weight t && sameWeight)
 
 type TermSet = HS.HashSet Term
 
-data GoState = GoState {seen :: !IntSet, --hashed integers
+data GoState = GoState {seen :: !(HS.HashSet Term),
                         unique_terms :: !(Map Term TermSet),
                         stecta :: StEcta,
                         so_far :: !Int,
@@ -306,7 +304,7 @@ experimentalPhases size phase extraReps sigs =
            go :: Int -> Int -> IO [String]
            go n phase  =
                   do let stecta@StEcta{..} = mkStecta sig monomorphiseType monomorphiseType
-                     go' GoState {seen = IntSet.empty,
+                     go' GoState {seen = HS.empty,
                                   rewrite_rules = [],
                                   unique_terms = Map.empty,
                                   stecta = stecta,
@@ -410,13 +408,13 @@ experimentalPhases size phase extraReps sigs =
                    not (current_ty `Map.member` unique_terms) =
                     go' (GoState{current_terms = terms,
                                 unique_terms = Map.insert current_ty (HS.singleton np_term) unique_terms,
-                                seen = seen <> IntSet.singleton (hash np_term),
+                                seen = HS.insert np_term seen,
                                 ..})
                  -- if we've seen it before, we can immediately skip.
-                 | (hash np_term) `IntSet.member` seen = skip seen
+                 | np_term `HS.member` seen = skip seen
                  -- We don't want terms that are all variables.
                  | termSize np_term > 1,
-                    allFromSig given_sig np_term = skip (seen <> IntSet.singleton (hash np_term))
+                    allFromSig given_sig np_term = skip (HS.insert np_term seen)
                  | otherwise = do
                     let other_terms = HS.toList $ unique_terms Map.! current_ty
                         terms_to_test = map termToTest other_terms
@@ -513,7 +511,7 @@ experimentalPhases size phase extraReps sigs =
                                                       else unique_terms,
                                                     seen =
                                                       if testable
-                                                      then seen <> IntSet.singleton (hash np_term)
+                                                      then HS.insert np_term seen
                                                       else seen,
                                                     ..}
 
@@ -545,7 +543,7 @@ experimentalPhases size phase extraReps sigs =
                                     _ -> []
                             (law_str:) <$>
                                go' GoState {
-                                    seen = seen <> IntSet.singleton (hash np_term),
+                                    seen = HS.insert np_term seen,
                                     so_far=sf',
                                     law_nums = ns,
                                     current_terms = terms,

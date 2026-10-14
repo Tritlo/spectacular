@@ -28,9 +28,8 @@ import qualified Type.Reflection as TR
 
 import qualified Data.Set as Set
 import Data.Set (Set)
-import Data.Hashable (hash, Hashable)
-import Data.IntSet (IntSet)
-import qualified Data.IntSet as IntSet
+import Data.Hashable (Hashable)
+import Data.Containers.ListUtils (nubOrd)
 
 -- | A type: a type variable, a function type, or a type constructor with
 -- its arguments.
@@ -113,7 +112,7 @@ sigGivens typeMod sigs extraReps = (
                 addLi' n t = t':(addLi' (n-1) t')
                  where t' = TCons "[]" [t]
                 
-        allCons = nubHash $ concatMap addLi $ Set.toList $ Set.unions $ map cons trs
+        allCons = nubOrd $ concatMap addLi $ Set.toList $ Set.unions $ map cons trs
         toEqInst e | Just rep <- genRep e,
                      Just eqf <- g_eq rep = g rep eqf
            where g rep eqf = Just ("<@Eq_"<>(T.pack $ show $ g_tr rep)<>"@>",
@@ -428,11 +427,6 @@ selfEqualityGen eq_inst sig t = do
 dynProp :: Gen Dynamic -> Property
 dynProp gen = QC.forAll gen (flip fromDyn (property False))
 
-nubHash :: Hashable a => [a] -> [a]
-nubHash li = nubHash' IntSet.empty li
-  where nubHash' _ [] = []
-        nubHash' seen (a:as) | (hash a) `IntSet.member` seen = nubHash' seen as
-        nubHash' seen (a:as) = a:(nubHash' (IntSet.insert (hash a) seen) as)
 
 -- TODO: can we kill a branch once a rewriteable term is detected?
 --
