@@ -479,11 +479,20 @@ consider Settings{..} StEcta{..} lvl full_term s@Search{..}
         values u = map (\tc -> evalTerm compl_sig tc u) test_cases
 
 -- | The rules of a law: its two sides as templates, with the variables of
--- the law, in both directions.
+-- the law, in both directions. A direction is not a rule if its right side
+-- is heavier and has each variable at least as often as its left side.
+-- Then each instance of the right side is heavier in the Knuth-Bendix order,
+-- so the direction cannot make a term smaller.
 lawRules :: Sig -> Term -> [(Term, Term)]
-lawRules gsig (Term "(==)" [_, l, r]) = [(l', r'), (r', l')]
+lawRules gsig (Term "(==)" [_, l, r]) = filter canReduce [(l', r'), (r', l')]
   where l' = toTemplate gsig l
         r' = toTemplate gsig r
+        canReduce (a, b) = weight b <= weight a || any (\x -> count x b < count x a) (vars a)
+        weight (Term "app" [_, f, v]) = 1 + weight f + weight v
+        weight _ = 1 :: Int
+        vars (Term "app" [_, f, v]) = vars f ++ vars v
+        vars (Term h@(Symbol x) _) = [h | "<v>" `T.isPrefixOf` x]
+        count x t = length (filter (== x) (vars t))
 lawRules _ _ = []
 
 -- | Test an equation: the property that its two sides are equal.
