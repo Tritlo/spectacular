@@ -1,0 +1,4 @@
+1. xs0_<[A]> == ((>>=) xs0_<[A]>) return
+2. return x0_<A> == (((>=>) return) return) x0_<A>
+3. xs0_<[A]> == ((>>=) xs0_<[A]>) (((>=>) return) return)
+4. ((++) xs0_<[A]>) (((++) xs1_<[A]>) xs2_<[A]>) == ((++) (((++) xs0_<[A]>) xs1_<[A]>)) xs2_<[A]>

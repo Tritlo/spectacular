@@ -1,0 +1,17 @@
+Baseline of the laws that microspectacular finds.
+
+Commit 94e4d31, GHC 9.14.1, microcfta 8e393e62, recorded 2026-10-14 14:10
+on the WSL2 development machine. Each run is phase 1 with the fixed
+QuickCheck seed. Each program ran twice, and the two law lists were
+identical. The law files hold the numbered law lines of the output.
+
+run              program            args  laws     elapsed s  bytes allocated  max residency
+gcd-3-1          example-gcd                22   0.009 0.007       22,302,160        253,504
+list-monad-5-1   bench-list-monad   5 1      4   0.017 0.021       67,412,240      3,657,776
+lists-5-1        bench-lists        5 1     17   0.052 0.053      243,179,888      3,758,288
+octonions-4-1    bench-octonions    4 1      7   0.021 0.022       37,197,936        251,032
+regex-4-1        bench-regex        4 1     31   0.278 0.276    2,386,165,120        368,056
+
+The elapsed times are of the two runs. The allocation and the residency
+are of the first run. The second run gave the same numbers, except that
+regex-4-1 allocated 32 bytes less.
