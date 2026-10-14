@@ -20,10 +20,9 @@ import Data.Maybe (mapMaybe, fromMaybe)
 import Control.Exception (SomeException, evaluate, try)
 import Debug.Trace (trace)
 
-import Test.QuickCheck (Arbitrary(..), Property(..), Testable(..), Gen(..))
+import Test.QuickCheck (Arbitrary(..), Gen(..))
 import qualified Test.QuickCheck as QC
 import Unsafe.Coerce
-import Test.QuickCheck.Property
 import Test.QuickCheck.Gen (unGen)
 import Test.QuickCheck.Random (mkQCGen)
 import qualified Type.Reflection as TR
@@ -349,15 +348,6 @@ extra name fun = Map.singleton name $ (extraFunc $ toDyn fun)
 type VarVals = Map Text Dynamic
 
 
-getVars :: Sig -> Term -> Gen VarVals
-getVars sig (Term (Symbol sym) args) = do
-    vv <- Map.unions <$> (mapM (getVars sig) args)
-    case sig Map.!? sym of
-        Just (GivenFun {given_info = GivenVar _ _ (DynGen g) }) -> do
-            v <- toDyn <$> g
-            return (vv <> (Map.singleton sym v))
-        _ -> return vv 
-
 generalizeType :: TypeSkeleton -> TypeSkeleton
 generalizeType t | Just v <- lookup t carriers = TVar v
 generalizeType (TCons s r) = TCons s $ map generalizeType r
@@ -414,39 +404,6 @@ carrierTyCons =
   [ tyConOf (Proxy :: Proxy A), tyConOf (Proxy :: Proxy B), tyConOf (Proxy :: Proxy C)
   , tyConOf (Proxy :: Proxy D), tyConOf (Proxy :: Proxy Acc) ]
 
-
--- Note: should be npTermed
-termToGen :: Dynamic -> Sig -> VarVals -> Term -> Gen Dynamic
-termToGen eq_inst sig init_vv (Term "(==)" [eq_i, a_g, b_g]) =
-    do vv <- if Map.null init_vv
-             then do vva <- getVars sig a_g
-                     vvb <- getVars sig b_g
-                     return (vva <> vvb)
-             else return init_vv
-       a  <- termToGen eq_inst sig vv a_g
-       b  <- termToGen eq_inst sig vv b_g
-       return $ unsafeApply (unsafeApply eq_inst a) b
-termToGen eq_inst sig vv (Term "app" [_,f_g,v_g]) = do
-  f <- termToGen eq_inst sig vv f_g
-  v <- termToGen eq_inst sig vv v_g
-  return $ unsafeApply f v
-termToGen _ sig vv (Term (Symbol sym) _) = do
-  case sig Map.!? sym of 
-   Just (GivenFun {given_info = GivenVar _ _ _}) ->
-        case vv Map.!? sym of
-          Just var_val -> return var_val
-          _ -> error "Variable not found!!"
-   Just (GivenFun {given_info = GivenInst _ inst}) -> return inst
-   Just sf@(SigFunc {}) -> return $ sfFunc sf
-   Just gf@(GenFunc {}) -> return $ sfFunc gf
-   Just x -> error $ show x
-   Nothing -> error "not found!"
-   
-
--- | The property that a generated equation holds. The equalities of the
--- types give Bool values.
-dynProp :: Gen Dynamic -> Property
-dynProp gen = QC.forAll gen (`fromDyn` False)
 
 -- | The value of a term on a test case.
 evalTerm :: Sig -> VarVals -> Term -> Dynamic

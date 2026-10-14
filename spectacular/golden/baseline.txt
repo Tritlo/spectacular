@@ -9,9 +9,9 @@ before and after a change.
 
 run              program            args  laws  elapsed s    bytes allocated  max residency
 gcd-3-1          example-gcd                 9      0.005          6,082,424         61,264
-list-monad-5-1   bench-list-monad   5 1      4      0.008         19,797,736        541,640
-lists-5-1        bench-lists        5 1     15      0.024         71,928,216      1,713,856
-octonions-4-1    bench-octonions    4 1      6      0.030         44,681,112        406,152
-regex-4-1        bench-regex        4 1     21      0.604      5,505,830,240        787,864
-lists-9-1        bench-lists        9 1     46      2.701     10,082,597,560    109,415,640
-huge-lists-7-1   bench-huge-lists   7 1    346      4.178     15,951,816,648    103,509,008
+list-monad-5-1   bench-list-monad   5 1      4      0.009         19,797,736        541,640
+lists-5-1        bench-lists        5 1     15      0.026         71,928,216      1,713,856
+octonions-4-1    bench-octonions    4 1      6      0.029         44,681,112        406,152
+regex-4-1        bench-regex        4 1     21      0.625      5,505,830,240        787,864
+lists-9-1        bench-lists        9 1     46      2.798     10,082,597,560    109,415,640
+huge-lists-7-1   bench-huge-lists   7 1    346      4.478     15,951,816,648    103,509,008

@@ -15,7 +15,6 @@ import Data.Dynamic (Dynamic)
 import qualified Data.Bifunctor as Bi
 import Spectacular.Types
 import Spectacular.Utils
-import Spectacular.Testing
 import qualified Spectacular.DecisionTree as DT
 import Data.Proxy (Proxy(..))
 
@@ -25,8 +24,6 @@ import Data.CFTA.Equality (Node (Node), Edge (Edge), union, refold,
                            runs)
 import Data.CFTA.Symbol (Symbol (Symbol))
 import Data.List hiding (union)
-import qualified Test.QuickCheck as QC
-import Test.QuickCheck.Random (mkQCGen)
 import qualified Data.Text as T
 import Control.Monad (when)
 import qualified System.Environment as Env
@@ -234,9 +231,7 @@ data Settings = Settings {
     -- | Whether to show the progress on stderr.
     progress :: Bool,
     -- | The number of test cases that the terms of a phase share.
-    numTests :: Int,
-    -- | The arguments of the tests.
-    qcArgs :: QC.Args
+    numTests :: Int
     }
 
 -- | Print the laws of a signature, with terms up to the size that the first
@@ -287,14 +282,7 @@ experimentalPhases size phase extraReps sigs =
 
        putStrLn "Laws according to Haskell's (==):"
        putStrLn "---------------------------------"
-       -- Each test run starts from the same seed, so that the laws are the
-       -- same in each run.
-       let env = Settings { progress = progress,
-                            numTests = numTests,
-                            qcArgs = QC.stdArgs { QC.chatty = False,
-                                                  QC.maxShrinks = 0,
-                                                  QC.maxSuccess = 100,
-                                                  QC.replay = Just (mkQCGen 0, 0)} }
+       let env = Settings { progress = progress, numTests = numTests }
        runPhases env size (max 1 (min 4 phase)) extraReps sig
 
 -- 1. The runtime signature and the search space.

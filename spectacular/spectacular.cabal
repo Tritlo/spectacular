@@ -21,10 +21,8 @@ common deps
                  containers,
                  microcfta,
                  QuickCheck >= 2.15 && < 2.19,
-                 async,
                  hashable,
-                 unordered-containers,
-                 random
+                 unordered-containers
 
 
 library
@@ -34,7 +32,6 @@ library
     Spectacular,
     Spectacular.Types,
     Spectacular.Utils,
-    Spectacular.Testing,
     Spectacular.DecisionTree
 
 
