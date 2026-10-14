@@ -241,6 +241,8 @@ data Search = Search {
 data Settings = Settings {
     -- | Whether to show the progress on stderr.
     progress :: Bool,
+    -- | The number of test cases that the terms of a phase share.
+    numTests :: Int,
     -- | The arguments of the tests.
     qcArgs :: QC.Args
     }
@@ -272,10 +274,12 @@ experimentalPhases :: Int -> Int -> (TypeSkeleton -> Maybe GeneratedInstance) ->
 experimentalPhases size phase extraReps sigs =
     do -- SPECTACULAR_PROGRESS=1 shows the progress of the search on stderr.
        progress <- (== Just "1") <$> Env.lookupEnv "SPECTACULAR_PROGRESS"
+       -- SPECTACULAR_TESTS sets the number of test cases (100 by default).
+       numTests <- fromMaybe 100 . (>>= TR.readMaybe) <$> Env.lookupEnv "SPECTACULAR_TESTS"
        let sig = mconcat sigs
            StEcta { compl_sig = compl_sig,
                     arb_insts = arb_insts,
-                    sig_ty_cons = sig_ty_cons} = mkStecta extraReps sig id id
+                    sig_ty_cons = sig_ty_cons} = mkStecta numTests extraReps sig id id
        putStrLn $ "In Scope (" ++ show (Map.size compl_sig) ++ " functions/constants):"
        putStrLn "---------------------------------"
        mapM_ (putStrLn . T.unpack) $ Map.keys compl_sig
@@ -294,6 +298,7 @@ experimentalPhases size phase extraReps sigs =
        -- Each test run starts from the same seed, so that the laws are the
        -- same in each run.
        let env = Settings { progress = progress,
+                            numTests = numTests,
                             qcArgs = QC.stdArgs { QC.chatty = False,
                                                   QC.maxShrinks = 0,
                                                   QC.maxSuccess = 100,
@@ -306,15 +311,15 @@ experimentalPhases size phase extraReps sigs =
 -- with the generated variables and the equalities, the node of the atoms,
 -- and the types to test. The first function changes the types of the
 -- generated variables, and the second the types of the functions.
-mkStecta :: (TypeSkeleton -> Maybe GeneratedInstance) -> Sig
+mkStecta :: Int -> (TypeSkeleton -> Maybe GeneratedInstance) -> Sig
          -> (TypeSkeleton -> TypeSkeleton) -> (TypeSkeleton -> TypeSkeleton) -> StEcta
-mkStecta extraReps sig givenTrans skelTrans =
+mkStecta numTests extraReps sig givenTrans skelTrans =
          StEcta { any_arg = ag,
                   compl_sig = compl_sig,
                   given_sig = givenSig,
                   sig_ty_cons = Map.keys eq_insts,
                   eq_insts = eq_insts,
-                  test_cases = testCases 100 compl_sig,
+                  test_cases = testCases numTests compl_sig,
                   arb_insts = arbs }
   where skels =  Map.assocs $ skelTrans . sfTypeRep <$> sig
         (givenSig, eq_insts, arbs) = sigGivens givenTrans sig extraReps
@@ -355,7 +360,7 @@ runPhases env size lastPhase extraReps sig =
     go ((pn, (finished, starting, givenTrans, skelTrans)) : rest) s
       | pn <= lastPhase = do
           when (pn > 1) $ putStrLn starting
-          (laws, s') <- runPhase env size (mkStecta extraReps sig givenTrans skelTrans) s
+          (laws, s') <- runPhase env size (mkStecta (numTests env) extraReps sig givenTrans skelTrans) s
           putStrLn $ finished ++ show (so_far s') ++ " terms examined."
           putStrLn $ show (sum $ map DT.size $ Map.elems (trees s')) ++ " unique terms discovered."
           (laws ++) <$> go rest s'

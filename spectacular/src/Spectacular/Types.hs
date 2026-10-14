@@ -458,14 +458,14 @@ evalTerm sig tc (Term (Symbol sym) _) =
       _ -> error ("evalTerm: symbol not found: " ++ T.unpack sym)
 
 -- | The test cases of a signature: a value for each generated variable.
--- Test case k has the size k, as the k-th test of QuickCheck has. Each
--- variable takes its value from a seed of its own, so a variable has the
--- same values in each phase.
+-- Test case k has the size k mod 100, as the k-th test of QuickCheck has
+-- with its default maximum size. Each variable takes its value from a seed
+-- of its own, so a variable has the same values in each phase.
 testCases :: Int -> Sig -> [VarVals]
 testCases n sig =
     [ Map.fromList [ (v, value g k v) | (v, GivenFun {given_info = GivenVar _ _ g}) <- Map.assocs sig ]
     | k <- [0 .. n - 1] ]
-  where value (DynGen g) k v = toDyn (unGen g (mkQCGen (hash (k, v))) k)
+  where value (DynGen g) k v = toDyn (unGen g (mkQCGen (hash (k, v))) (k `mod` 100))
 
 -- | Whether two values are equal, by the equality of their type. Nothing
 -- means that the comparison threw an exception.
