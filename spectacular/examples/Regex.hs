@@ -8,7 +8,6 @@ import Data.Map(Map)
 import Data.Typeable
 import Spectacular
 import Spectacular.Types (genRepFromProxy)
-import Application.TermSearch.Type (TypeSkeleton(..))
 import Test.QuickCheck
 import Test.QuickCheck.Random
 import Test.QuickCheck.Gen

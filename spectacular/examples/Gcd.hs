@@ -2,7 +2,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving, DeriveDataTypeable, FlexibleInstances, OverloadedStrings #-}
 import Spectacular
 import Spectacular.Types (genRepFromProxy)
-import Application.TermSearch.Type (TypeSkeleton(..))
 import Test.QuickCheck
 import Data.Proxy
 import Data.Typeable

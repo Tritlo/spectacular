@@ -1,7 +1,11 @@
-packages: ecta/
-          spectacular/
+with-compiler: ghc-9.14.1
 
+packages: spectacular/
+
+-- microcfta is not on Hackage. Pin a commit of the microecta repository.
+-- For local development, cabal.project.local can point at a checkout.
 source-repository-package
     type: git
-    location: https://github.com/jkoppel/equivalence.git
-    tag: e58c9c0b369f9b8105744cc0342f2e69929b11bf
+    location: https://github.com/Tritlo/microecta.git
+    tag: 8e393e622911f71cb0c466a53fb80eaa02d3f82f
+    subdir: microcfta

@@ -11,3 +11,5 @@ log
 *.pdf
 **/*.o
 **/*.hi
+cabal.project.local
+cabal.project.dev

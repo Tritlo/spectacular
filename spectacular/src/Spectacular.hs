@@ -19,7 +19,6 @@ import Data.Tuple (swap)
 import qualified Data.Dynamic as Dyn
 import Data.Dynamic (Dynamic)
 import qualified Data.Bifunctor as Bi
-import MonadUtils (concatMapM)
 import Spectacular.Types
 import Spectacular.Utils
 import Spectacular.Testing
@@ -27,20 +26,13 @@ import qualified Spectacular.Utils as SS
 import Data.Proxy (Proxy(..))
 
 
-import Application.TermSearch.Dataset
-import Application.TermSearch.Type
-import Application.TermSearch.TermSearch hiding (allConstructors, generalize)
-import Data.ECTA
-import Data.ECTA.Term
-import Data.ECTA.Internal.ECTA.Operations ( nodeRepresents,
-                                            nodeRepresentsTemplate,
-                                            edgeRepresentsTemplate)
-import Data.ECTA.Internal.ECTA.Enumeration
-    (expandPartialTermFrag, getUVarValue, UVarValue(..), TermFragment(..),
-     getUVarRepresentative, getPruneDeps, addPruneDep, deletePruneDep,
-     fragRepresents, EnumerationState, runEnumerateM, enumPrune,
-     initEnumerationState, mergeNodeIntoUVarVal)
-import Data.Persistent.UnionFind ( uvarToInt, intToUVar, UVar )
+import Data.CFTA.Equality (Node (Node), Edge (Edge), union, refold,
+                           reducePartially, withoutRedundantEdges, fixWithin,
+                           termsPrune, TermFragment, EnumerateM,
+                           expandPartialTermFrag, PartialSymbol (..),
+                           UVar, uvarToInt)
+import Data.CFTA.Symbol (Symbol (Symbol))
+import qualified Data.CFTA.Term as CT
 import Data.List hiding (union)
 import qualified Test.QuickCheck as QC
 import Control.Monad (zipWithM_, filterM, when, mzero, void)
@@ -84,7 +76,7 @@ updateRewrites _ r = return r
 
 
 data StEcta = StEcta { scope_comps  :: Comps,
-                      any_arg       :: Node,
+                      any_arg       :: Node Symbol,
                       eq_insts      :: Map TypeSkeleton (T.Text, Dynamic),
                       arb_insts     :: Map TypeSkeleton (T.Text, Func),
                       sig_ty_cons   :: [TypeSkeleton],
@@ -276,7 +268,7 @@ updRw a b (Rewrite hole_rules mp) =
     in -- traceShow (ppNpTerm big ++ " ==> " ++ ppNpTerm sml) $
        Rewrite hole_rules (IM.insert (hash big) sml mp)
 
-applyRewrites :: Rewrite -> Node -> IO Node
+applyRewrites :: Rewrite -> Node Symbol -> IO (Node Symbol)
 applyRewrites r n = return n
 
 initRewrites :: IO Rewrite
@@ -295,51 +287,39 @@ termSize (Term s args) = 1 + sum (map termSize args)
 -- best would probably be to apply this in the node.
 
 
--- TODO: we're maybe calling getUVarValue too often here.
 oracle :: ([Term],[Term])
             -> (Int, TypeSkeleton)
             -> UVar
-            -> Either TermFragment Node
-            -> EnumerateM (Bool,(Int,TypeSkeleton))
-oracle (templs,rws) st@(lvl,TCons tsk _) uv (Left tf) = do
-    deps <- getPruneDeps
-    -- traceShowM (uv, tf)
-    -- traceShowM deps
-    --traceShowM rws
-    -- when (lvl == 6 && tsk == "Int") $ do
-    --     tv <- getUVarValue (intToUVar 0)
-    --     case tv of
-    --         UVarEnumerated t -> expandPartialTermFrag t >>= (traceShowM . ppNpTerm . npTerm')
-    --         _ -> return ()
-    let st' = st
-    (,st') <$>
-        if IM.null deps
-        then if (uv == intToUVar 0)
-             then do res <- {-# SCC "fresh-start" #-} fragRepresents True tf (rws ++ templs)
-                     -- when res $ do UVarEnumerated tv <- getUVarValue (intToUVar 0)
-                     --               eptf <- expandPartialTermFrag tv
-                     --               traceShowM $ (ppNpTerm $ npTerm' eptf) ++ " pruned!"
-                     return res
-             else return False -- a type is being selected.
-        else case deps IM.!? (uvarToInt uv) of
-                Just rw' -> do -- mapM_ (traceShowM . ppNpTerm . npTerm') rw'
-                               -- traceShowM "unsuspending!"
-                               deletePruneDep (uvarToInt uv)
-                               {-# SCC "resume" #-} fragRepresents True tf rw'
-                _ -> return False
--- TODO: this is too strong, it just throws everything away even if
--- we wouldn't encounter that one.
-oracle (templs,rws) st uv (Right n) =
-    (,st) <$> return (any (nodeRepresentsTemplate n) (templs ++ rws))
-    -- let cf n = M.Any (any (nodeRepresentsTemplate n) $ templs)
-    --     will_encounter =  M.getAny (crush (onNormalNodes cf) n)
-    -- let rmIfRep n | any (nodeRepresentsTemplate n) (templs ++ rws) = EmptyNode
-    --     rmIfRep n = n
-    --     newNode = mapNodes rmIfRep n
-    -- UVarUnenumerated _ scs <- getUVarValue uv
-    -- mergeNodeIntoUVarVal uv newNode scs
-    -- return False
-    -- in return $
+            -> Either (TermFragment Symbol) (Node Symbol)
+            -> EnumerateM Symbol (Bool,(Int,TypeSkeleton))
+oracle (templs,rws) st@(lvl,TCons tsk _) uv (Left tf)
+    -- Only the root UVar is checked. Its fragment holds the symbols of the
+    -- whole term, and the UVars below it hold the types.
+    | uvarToInt uv == 0 = do partial <- expandPartialTermFrag tf
+                             return (fragRepresents partial (rws ++ templs), st)
+    | otherwise = return (False, st)
+oracle _ st _ (Right _) = return (False, st)
+
+-- | Whether a subterm of a partial term matches one of the templates.
+-- A template symbol "<v>" matches any subterm. The types are not compared.
+fragRepresents :: CT.Term (PartialSymbol Symbol) -> [Term] -> Bool
+fragRepresents (CT.Node (ConcreteSymbol "filter") [_,t]) rwrs = fragRepresents t rwrs
+fragRepresents tf@(CT.Node (ConcreteSymbol "app") [_,_,f,v]) rwrs =
+    any (ruleMatches tf) rwrs || fragRepresents f rwrs || fragRepresents v rwrs
+fragRepresents tf@(CT.Node (ConcreteSymbol _) [_]) rwrs = any (ruleMatches tf) rwrs
+fragRepresents tf@(CT.Node (UVarHole _) []) rwrs = any (ruleMatches tf) rwrs
+fragRepresents tf@(CT.Node TruncatedRecursion []) rwrs = any (ruleMatches tf) rwrs
+fragRepresents tf _ = error $ "unrecognized frag! " ++ show tf
+
+-- | Whether a partial term matches a template at its root.
+ruleMatches :: CT.Term (PartialSymbol Symbol) -> Term -> Bool
+ruleMatches _ (Term (Symbol "<v>") _) = True
+ruleMatches (CT.Node (ConcreteSymbol "app") [_,_,tf_f,tf_v])
+            (Term "app" [_,_,rw_f,rw_v]) =
+    ruleMatches tf_f rw_f && ruleMatches tf_v rw_v
+ruleMatches (CT.Node (ConcreteSymbol ts) [_]) (Term rws [_]) = ts == rws
+ruleMatches _ _ = False
+
 hasTemplate :: Term -> Bool
 hasTemplate (Term (Symbol s) args) = T.isPrefixOf "<v" s || any hasTemplate args
 
@@ -427,7 +407,7 @@ tacularSpec' size phase extraReps sigs =
            mtk comps anyArg True 1 = [anyArg, SS.applyOperator comps]
            mtk comps anyArg _ k = map constructApp [1.. (k-1)]
             where
-                constructApp :: Int -> Node
+                constructApp :: Int -> Node Symbol
                 constructApp i =
                     mapp (union $ mtk comps anyArg False i)
                          (union $ mtk comps anyArg True (k-i))
@@ -526,13 +506,13 @@ tacularSpec' size phase extraReps sigs =
                 refreshCount "Reducing  ECTA" (" for " ++ show tc) "" cur_lvl so_far
                 let max_rounds = 100
                     !ecta = filterType nextNode $ typeToFta tc
-                (!reduced, tries) <- reduceFullyAndLog' max_rounds ecta
+                    !reduced = fixWithin max_rounds (withoutRedundantEdges . reducePartially) ecta
                 refreshCount "Refolding ecta" (" for " ++ show tc) "" cur_lvl so_far
 
                 !folded <- return $ refold reduced
 
                 let o = oracle $ partition hasTemplate rewrite_terms
-                let terms = getAllTermsPrune (cur_lvl, tc) o folded
+                let terms = termsPrune (cur_lvl, tc) o folded
                 -- We want to display a message once the first term is found.
                 -- in particular, it hangs after this messages for HugeLists 6
                 refreshCount "Finding first term " (" for " ++ show tc) "" cur_lvl so_far

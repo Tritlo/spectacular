@@ -22,6 +22,6 @@ quickCheckBoolOnly args prop = withState args loop
                  MkResult {ok = Just False} -> return False
                  _ -> error "weird stuff happening in quickcheck shim!!"
           where (rnd1,rnd2) = split (randomSeed st)
-                size = computeSize st (numSuccessTests st) (numRecentlyDiscardedTests st)
+                size = computeSize st
 
 

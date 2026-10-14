@@ -3,7 +3,6 @@
 import Data.Ratio
 import Spectacular
 import Spectacular.Types (genRepFromProxy)
-import Application.TermSearch.Type (TypeSkeleton(..))
 import Test.QuickCheck
 -- import Twee.Pretty
 import Data.Typeable (Typeable)

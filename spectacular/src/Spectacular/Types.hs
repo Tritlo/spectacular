@@ -1,7 +1,8 @@
 {-# LANGUAGE TypeSynonymInstances, FlexibleInstances, OverloadedStrings,
              ScopedTypeVariables, TypeApplications, RecordWildCards, GADTs,
              StandaloneDeriving, KindSignatures, PolyKinds, RankNTypes,
-             GeneralizedNewtypeDeriving, FlexibleContexts, TupleSections #-}
+             GeneralizedNewtypeDeriving, FlexibleContexts, TupleSections,
+             PatternSynonyms, DeriveGeneric #-}
 
 module Spectacular.Types where
 import Data.Dynamic
@@ -9,7 +10,7 @@ import Data.Map (Map)
 import Data.Text (Text)
 import qualified Data.Map as Map
 import GHC.Base (Any)
-import Application.TermSearch.Type (TypeSkeleton(..))
+import GHC.Generics (Generic)
 import GHC.Stack (HasCallStack)
 
 import Data.Typeable
@@ -18,13 +19,8 @@ import Data.Char (toLower)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Monoid as M
-import Application.TermSearch.Dataset
-import Application.TermSearch.Type
-import Data.ECTA (Node (Node), mkEdge, Edge (Edge), pathsMatching, mapNodes, createMu)
-import Data.ECTA.Term
-import Application.TermSearch.Utils (theArrowNode, arrowType, var1, var2, var3, var4, varAcc, mkDatatype)
-import Data.ECTA (union)
-import Data.ECTA.Paths (getPath, mkEqConstraints, path, Path)
+import Data.CFTA.Symbol (Symbol (Symbol))
+import qualified Data.CFTA.Term as CT
 import Data.Proxy
 import Data.Maybe (mapMaybe, fromJust)
 import Debug.Trace (traceShowId, trace, traceShowM)
@@ -47,6 +43,24 @@ import Data.Set (Set)
 import Data.Hashable (hash, Hashable)
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
+
+-- | A type: a type variable, a function type, or a type constructor with
+-- its arguments.
+data TypeSkeleton
+  = TVar Text
+  | TFun TypeSkeleton TypeSkeleton
+  | TCons Text [TypeSkeleton]
+  deriving (Eq, Ord, Show, Read, Generic)
+
+instance Hashable TypeSkeleton
+
+-- | A term of the automata. The symbols are interned texts.
+type Term = CT.Term Symbol
+
+-- | A term as its symbol and the list of its children.
+pattern Term :: Symbol -> [Term] -> Term
+pattern Term s ts = CT.Node s ts
+{-# COMPLETE Term #-}
 
 newtype A = A M.Any deriving (Typeable, Eq, Show, Ord)
 newtype B = B M.Any deriving (Typeable, Eq, Show, Ord)
@@ -259,8 +273,23 @@ typeRepToTypeSkeleton tr
      = TFun arg ret
      | otherwise = TCons (T.pack tcn) args
   where (tc, tra) = splitTyConApp tr
-        tcn = tyConName tc
+        tcn = specialName tc
         args = map typeRepToTypeSkeleton tra
+
+-- | The name of a type constructor. GHC 9.6 and later give some built-in
+-- type constructors new names, for example List for []. This function
+-- gives the name of the special syntax, which the generators use.
+specialName :: TyCon -> String
+specialName tc
+  | tc == tyConOf (Proxy :: Proxy [()]) = "[]"
+  | tc == tyConOf (Proxy :: Proxy ((), ())) = "(,)"
+  | tc == tyConOf (Proxy :: Proxy ()) = "()"
+  | tc == tyConOf (Proxy :: Proxy (() -> ())) = "->"
+  | otherwise = tyConName tc
+
+-- | The type constructor of a type.
+tyConOf :: Typeable a => Proxy a -> TyCon
+tyConOf = typeRepTyCon . typeRep
 
 
 prettyMatchRep :: Map.Map Text TypeSkeleton -> Map.Map Text [Text] -> Term -> [Text]
@@ -319,7 +348,7 @@ gvToNameNoType :: GivenInfo -> Text
 gvToNameNoType (GivenVar tr i _) = var<>is
   where trn = T.pack (show tr)
         is = T.pack (show i)
-        var = case tyConName (typeRepTyCon tr) of
+        var = case specialName (typeRepTyCon tr) of
                 "[]" -> "xs"
                 "->" -> "f"
                 _ -> "x"
