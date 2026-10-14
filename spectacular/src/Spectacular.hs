@@ -191,8 +191,6 @@ data GoState = GoState {seen :: !IntSet, --hashed integers
                         law_nums :: [Int],
                         current_terms :: [Term],
                         rewrite_terms :: ![Term],
-                        -- The templates when the current enumeration began.
-                        active_templates :: [Term],
                         ty_cons_to_check :: [TypeSkeleton],
                         phase_number :: Int
                         } deriving (Show)
@@ -264,7 +262,6 @@ tacularSpec' size phase extraReps sigs =
                   do let stecta@StEcta{..} = mkStecta sig monomorphiseType monomorphiseType
                      go' GoState {seen = IntSet.empty,
                                   rewrite_terms = [],
-                                  active_templates = [],
                                   unique_terms = Map.empty,
                                   stecta = stecta,
                                   so_far = 0,
@@ -354,14 +351,14 @@ tacularSpec' size phase extraReps sigs =
                     (t:_) -> refreshCount "Folded, exploring " (" for " ++ show tc) "" cur_lvl so_far
                     _ -> return ()
 
-                go' GoState{ current_terms=terms, active_templates = rewrite_terms, ..}
+                go' GoState{ current_terms=terms,..}
                go' GoState{law_nums = law_nums@(n:ns),
                            current_terms = (full_term:terms),
                            stecta = stecta@StEcta{..},
                            ..}
                  -- The term has an instance of a known law in it, so a
                  -- smaller term is equal to it.
-                 | any (`containsInstance` np_term) active_templates =
+                 | any (`containsInstance` np_term) rewrite_terms =
                     go' GoState{current_terms = terms, ..}
                  | Term "filter" [current_ty,_] <- full_term,
                    not (current_ty `Map.member` unique_terms) =
