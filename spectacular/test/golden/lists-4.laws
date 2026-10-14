@@ -1,0 +1,10 @@
+1. 0 == length []
+2. [] == reverse []
+3. length xs0_<[A]> == length (reverse xs0_<[A]>)
+4. [] == ((++) []) []
+5. xs0_<[A]> == ((++) []) xs0_<[A]>
+6. xs0_<[A]> == ((++) xs0_<[A]>) []
+7. [] == (map f0_<A -> A>) []
+8. xs0_<[A]> == reverse (reverse xs0_<[A]>)
+9. length xs0_<[A]> == length ((map f0_<A -> A>) xs0_<[A]>)
+10. (map f0_<A -> A>) (reverse xs0_<[A]>) == reverse ((map f0_<A -> A>) xs0_<[A]>)

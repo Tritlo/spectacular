@@ -1,0 +1,4 @@
+1. True == null []
+2. [] == reverse []
+3. null xs0_<[A]> == null (reverse xs0_<[A]>)
+4. xs0_<[A]> == reverse (reverse xs0_<[A]>)

@@ -75,5 +75,15 @@ executable example-gcd
   build-depends: spectacular
   main-is: Gcd.hs
 
+-- Runs small signatures and compares their laws with test/golden.
+-- GOLDEN_ACCEPT=1 writes the files again.
+test-suite golden
+  import: deps
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Golden.hs
+  ghc-options: -threaded -rtsopts "-with-rtsopts=-M4G"
+  build-depends: spectacular
+
 
 
