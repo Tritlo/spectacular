@@ -34,7 +34,7 @@ import Data.Char (isAlphaNum)
 
 import qualified Data.HashSet as HS
 import Data.Function (on)
-import System.IO (hFlush, hPutStr, stderr)
+import System.IO (hFlush, hPutStr, hPutStrLn, stderr)
 import Data.Containers.ListUtils (nubOrd)
 
 data StEcta = StEcta { any_arg       :: Node Symbol,
@@ -149,7 +149,9 @@ data Settings = Settings {
     -- | Whether to show the progress on stderr.
     progress :: Bool,
     -- | The number of test cases that the terms of a phase share.
-    numTests :: Int
+    numTests :: Int,
+    -- | The largest size of the terms of the search.
+    maxSize :: Int
     }
 
 -- | Print the laws of a signature, with terms up to the size that the first
@@ -200,7 +202,7 @@ experimentalPhases size phase extraReps sigs =
 
        putStrLn "Laws according to Haskell's (==):"
        putStrLn "---------------------------------"
-       let env = Settings { progress = progress, numTests = numTests }
+       let env = Settings { progress = progress, numTests = numTests, maxSize = size }
        runPhases env size (max 1 (min 4 phase)) extraReps sig
 
 -- 1. The runtime signature and the search space.
@@ -260,7 +262,7 @@ runPhases env size lastPhase extraReps sig =
                                    trees = Map.empty,
                                    instance_trees = Map.empty,
                                    instantiated = HS.empty,
-                                   rewrite_rules = Map.empty,
+                                   rewrite_rules = emptyRules,
                                    so_far = 0,
                                    law_count = 0 }
   where
@@ -424,15 +426,21 @@ consider Settings{..} StEcta{..} lvl full_term s0
                         return (Singleton, s { instance_trees = Map.insert rep table' (instance_trees s) })
                     DT.EqualTo w
                         | w == i -> return (Knew, s)
+                        -- The known laws prove the law.
+                        | joinable isVar (rewrite_rules s) w i -> do
+                            when progress $
+                                hPutStrLn stderr ("\r\ESC[Kfollows from the laws: " ++ ppNpTerm (lawOf w))
+                            return (Knew, s)
                         | otherwise -> do
                             let n = law_count s + 1
-                                law = Term "(==)" [Term (Symbol eq_txt) [], w, i]
+                                law = lawOf w
                                 law_str = show n <> ". " <> ppNpTerm law
                             when progress $ hPutStr stderr "\r\ESC[K"
                             putStrLn law_str
                             return (Discovered law_str,
                                     s { law_count = n,
-                                        rewrite_rules = addRules (lawRules inst_sig law) (rewrite_rules s) })
+                                        rewrite_rules = addLaw maxSize inst_sig law (rewrite_rules s) })
+          where lawOf w = Term "(==)" [Term (Symbol eq_txt) [], w, i]
 
 npTerm' :: Term -> Term
 npTerm' (Term "filter" [_,term]) = npTerm' term

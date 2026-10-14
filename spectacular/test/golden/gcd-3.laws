@@ -1,9 +1,6 @@
 1. (gcd x0_<PosInt>) x1_<PosInt> == (gcd x1_<PosInt>) x0_<PosInt>
 2. x0_<PosInt> == (gcd x0_<PosInt>) x0_<PosInt>
 3. x0_<PosInt> == (gcd x0_<PosInt>) 0
-4. 1029 == (gcd 0) 1029
-5. 1071 == (gcd 0) 1071
-6. 21 == (gcd 0) 21
-7. 21 == (gcd 1029) 1071
-8. 21 == (gcd 1029) 21
-9. 21 == (gcd 1071) 21
+4. 21 == (gcd 1029) 1071
+5. 21 == (gcd 1029) 21
+6. 21 == (gcd 1071) 21

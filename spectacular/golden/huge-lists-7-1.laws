@@ -6,341 +6,89 @@
 6. ((+) x0_<Int>) x1_<Int> == ((+) x1_<Int>) x0_<Int>
 7. x0_<Int> == ((+) x0_<Int>) 0
 8. (zip xs0_<[A]>) [] == (zip xs1_<[A]>) []
-9. (zip xs0_<[A]>) [] == (zip xs2_<[A]>) []
-10. (zip xs0_<[A]>) [] == (zip xs3_<[A]>) []
-11. (zip xs0_<[A]>) [] == (zip []) xs0_<[A]>
-12. (zip xs0_<[A]>) [] == (zip []) []
-13. sort xs0_<[Int]> == sort (sort xs0_<[Int]>)
-14. xs0_<[A]> == reverse (reverse xs0_<[A]>)
-15. xs0_<[A]> == ((++) xs0_<[A]>) []
-16. xs0_<[A]> == ((++) []) xs0_<[A]>
-17. [] == (drop x0_<Int>) []
-18. xs0_<[A]> == (drop 0) xs0_<[A]>
-19. [] == (map f0_<A -> A>) []
-20. [] == (take x0_<Int>) []
-21. [] == (take 0) xs0_<[A]>
-22. unzip ((zip xs0_<[A]>) []) == unzip ((zip xs1_<[A]>) [])
-23. unzip ((zip xs0_<[A]>) []) == unzip ((zip xs2_<[A]>) [])
-24. unzip ((zip xs0_<[A]>) []) == unzip ((zip xs3_<[A]>) [])
-25. unzip ((zip xs0_<[A]>) []) == unzip ((zip []) [])
-26. length (((++) xs0_<[A]>) xs1_<[A]>) == length (((++) xs1_<[A]>) xs0_<[A]>)
-27. succ (length xs0_<[A]>) == length (((:) x0_<A>) xs0_<[A]>)
-28. length xs0_<[A]> == length ((map f0_<A -> A>) xs0_<[A]>)
-29. succ (((+) x0_<Int>) x1_<Int>) == ((+) x0_<Int>) (succ x1_<Int>)
-30. length xs0_<[A]> == ((+) 0) (length xs0_<[A]>)
-31. sum xs0_<[Int]> == ((+) 0) (sum xs0_<[Int]>)
-32. x0_<A> == fst (((,) x0_<A>) x1_<A>)
-33. x1_<A> == snd (((,) x0_<A>) x1_<A>)
-34. (zip xs0_<[A]>) [] == (zip []) (concat xs0_<[[A]]>)
-35. (zip xs0_<[A]>) [] == (zip []) (reverse xs0_<[A]>)
-36. ((:) x0_<A>) [] == reverse (((:) x0_<A>) [])
-37. reverse ((map f0_<A -> A>) xs0_<[A]>) == (map f0_<A -> A>) (reverse xs0_<[A]>)
-38. [] == (drop (length xs0_<[A]>)) xs0_<[A]>
-39. xs0_<[A]> == (take (length xs0_<[A]>)) xs0_<[A]>
-40. x0_<(A,A)> == ((,) (fst x0_<(A,A)>)) (snd x0_<(A,A)>)
-41. unzip ((zip xs0_<[A]>) []) == unzip ((zip []) (concat xs0_<[[A]]>))
-42. length (((++) xs0_<[A]>) xs1_<[A]>) == length (((++) xs0_<[A]>) (reverse xs1_<[A]>))
-43. length ((drop x0_<Int>) xs0_<[A]>) == length ((drop x0_<Int>) (reverse xs0_<[A]>))
-44. length ((take x0_<Int>) xs0_<[A]>) == length ((take x0_<Int>) (reverse xs0_<[A]>))
-45. length ((take (length xs0_<[A]>)) xs1_<[A]>) == length ((take (length xs1_<[A]>)) xs0_<[A]>)
-46. ((+) x0_<Int>) (((+) x1_<Int>) x2_<Int>) == ((+) x1_<Int>) (((+) x0_<Int>) x2_<Int>)
-47. length (((++) xs0_<[A]>) xs1_<[A]>) == ((+) (length xs0_<[A]>)) (length xs1_<[A]>)
-48. succ (((+) x0_<Int>) (sum xs0_<[Int]>)) == ((+) (succ x0_<Int>)) (sum xs0_<[Int]>)
-49. (zip xs0_<[A]>) xs0_<[A]> == (zip xs0_<[A]>) (((++) xs0_<[A]>) xs1_<[A]>)
-50. (zip xs0_<[A]>) [] == (zip []) (((++) xs0_<[A]>) xs1_<[A]>)
-51. (zip xs0_<[A]>) [] == (zip []) (((:) x0_<A>) xs0_<[A]>)
-52. (zip xs0_<[A]>) [] == (zip []) ((drop x0_<Int>) xs0_<[A]>)
-53. (zip xs0_<[A]>) [] == (zip []) ((map f0_<A -> A>) xs0_<[A]>)
-54. (zip xs0_<[A]>) [] == (zip []) ((take x0_<Int>) xs0_<[A]>)
-55. (zip xs0_<[A]>) xs0_<[A]> == (zip (((++) xs0_<[A]>) xs1_<[A]>)) xs0_<[A]>
-56. (zip xs0_<[A]>) ((take x0_<Int>) xs1_<[A]>) == (zip ((take x0_<Int>) xs0_<[A]>)) xs1_<[A]>
-57. ((++) xs1_<[A]>) (reverse xs0_<[A]>) == reverse (((++) xs0_<[A]>) (reverse xs1_<[A]>))
-58. ((++) (reverse xs1_<[A]>)) xs0_<[A]> == reverse (((++) (reverse xs0_<[A]>)) xs1_<[A]>)
-59. (take (succ 0)) xs0_<[A]> == reverse ((take (succ 0)) xs0_<[A]>)
-60. reverse (((:) x0_<A>) (reverse xs0_<[A]>)) == ((++) xs0_<[A]>) (((:) x0_<A>) [])
-61. (drop x0_<Int>) ((drop x1_<Int>) xs0_<[A]>) == (drop x1_<Int>) ((drop x0_<Int>) xs0_<[A]>)
-62. [] == (drop x0_<Int>) ((take x0_<Int>) xs0_<[A]>)
-63. ((:) (f0_<A -> A> x0_<A>)) [] == (map f0_<A -> A>) (((:) x0_<A>) [])
-64. (drop x0_<Int>) ((map f0_<A -> A>) xs0_<[A]>) == (map f0_<A -> A>) ((drop x0_<Int>) xs0_<[A]>)
-65. (map f0_<A -> A>) ((take x0_<Int>) xs0_<[A]>) == (take x0_<Int>) ((map f0_<A -> A>) xs0_<[A]>)
-66. (take x0_<Int>) ((take x1_<Int>) xs0_<[A]>) == (take x1_<Int>) ((take x0_<Int>) xs0_<[A]>)
-67. (take x0_<Int>) xs0_<[A]> == (take x0_<Int>) ((take x0_<Int>) xs0_<[A]>)
-68. reverse (((++) xs1_<[A]>) xs0_<[A]>) == ((++) (reverse xs0_<[A]>)) (reverse xs1_<[A]>)
-69. [] == (drop (length xs0_<[A]>)) (reverse xs0_<[A]>)
-70. reverse xs0_<[A]> == (take (length xs0_<[A]>)) (reverse xs0_<[A]>)
-71. ((++) xs0_<[A]>) (((++) xs1_<[A]>) xs2_<[A]>) == ((++) (((++) xs0_<[A]>) xs1_<[A]>)) xs2_<[A]>
-72. ((:) x0_<A>) (((++) xs0_<[A]>) xs1_<[A]>) == ((++) (((:) x0_<A>) xs0_<[A]>)) xs1_<[A]>
-73. [] == (drop (succ (length xs0_<[A]>))) xs0_<[A]>
-74. (drop x0_<Int>) ((drop x0_<Int>) xs0_<[A]>) == (drop (((+) x0_<Int>) x0_<Int>)) xs0_<[A]>
-75. xs0_<[A]> == (take (succ (length xs0_<[A]>))) xs0_<[A]>
-76. succ (length (((++) xs0_<[A]>) xs1_<[A]>)) == length (((++) xs0_<[A]>) (((:) x0_<A>) xs1_<[A]>))
-77. length (((++) xs0_<[A]>) xs1_<[A]>) == length (((++) xs0_<[A]>) ((map f0_<A -> A>) xs1_<[A]>))
-78. length ((drop x0_<Int>) xs0_<[A]>) == length ((drop x0_<Int>) ((map f0_<A -> A>) xs0_<[A]>))
-79. succ (((+) x0_<Int>) (length (concat xs0_<[[A]]>))) == ((+) (succ x0_<Int>)) (length (concat xs0_<[[A]]>))
-80. (zip xs0_<[A]>) (reverse xs0_<[A]>) == (zip xs0_<[A]>) (reverse (((++) xs1_<[A]>) xs0_<[A]>))
-81. (zip xs0_<[A]>) (reverse xs0_<[A]>) == (zip xs0_<[A]>) (reverse (((:) x0_<A>) xs0_<[A]>))
-82. (zip xs0_<[A]>) (reverse xs0_<[A]>) == (zip xs0_<[A]>) (((++) (reverse xs0_<[A]>)) xs1_<[A]>)
-83. (zip xs0_<[A]>) xs1_<[A]> == (zip xs0_<[A]>) ((take (length xs0_<[A]>)) xs1_<[A]>)
-84. (zip (reverse xs0_<[A]>)) xs0_<[A]> == (zip (reverse xs0_<[A]>)) (((++) xs0_<[A]>) xs1_<[A]>)
-85. (zip xs0_<[A]>) (reverse xs0_<[A]>) == (zip (((++) xs0_<[A]>) xs1_<[A]>)) (reverse xs0_<[A]>)
-86. (zip (reverse xs1_<[A]>)) xs1_<[A]> == (zip (reverse (((++) xs0_<[A]>) xs1_<[A]>))) xs1_<[A]>
-87. (zip (reverse xs0_<[A]>)) xs0_<[A]> == (zip (reverse (((:) x0_<A>) xs0_<[A]>))) xs0_<[A]>
-88. (zip (reverse xs0_<[A]>)) xs0_<[A]> == (zip (((++) (reverse xs0_<[A]>)) xs1_<[A]>)) xs0_<[A]>
-89. ((:) x1_<A>) (((:) x0_<A>) []) == reverse (((:) x0_<A>) (((:) x1_<A>) []))
-90. (drop x0_<Int>) (((:) x0_<A>) []) == reverse ((drop x0_<Int>) (((:) x0_<A>) []))
-91. (take x0_<Int>) (((:) x0_<A>) []) == reverse ((take x0_<Int>) (((:) x0_<A>) []))
-92. [] == (drop x0_<Int>) (reverse ((take x0_<Int>) xs0_<[A]>))
-93. (map f0_<A -> A>) ((take x0_<Int>) (reverse xs0_<[A]>)) == (take x0_<Int>) (reverse ((map f0_<A -> A>) xs0_<[A]>))
-94. reverse ((take x0_<Int>) xs0_<[A]>) == (take x0_<Int>) (reverse ((take x0_<Int>) xs0_<[A]>))
-95. (take x0_<Int>) xs0_<[A]> == (take x0_<Int>) ((take (succ x0_<Int>)) xs0_<[A]>)
-96. (map f0_<A -> A>) (((:) x0_<A>) xs0_<[A]>) == ((:) (f0_<A -> A> x0_<A>)) ((map f0_<A -> A>) xs0_<[A]>)
-97. xs1_<[A]> == (drop (length xs0_<[A]>)) (((++) xs0_<[A]>) xs1_<[A]>)
-98. [] == (drop (length xs0_<[A]>)) ((take x0_<Int>) xs0_<[A]>)
-99. [] == (drop (succ x0_<Int>)) ((take x0_<Int>) xs0_<[A]>)
-100. xs0_<[A]> == (drop (succ 0)) (((:) x0_<A>) xs0_<[A]>)
-101. xs0_<[A]> == (take (length xs0_<[A]>)) (((++) xs0_<[A]>) xs1_<[A]>)
-102. (drop x0_<Int>) xs0_<[A]> == (take (length xs0_<[A]>)) ((drop x0_<Int>) xs0_<[A]>)
-103. (take (succ 0)) xs0_<[A]> == (take (succ 0)) (((++) xs0_<[A]>) xs0_<[A]>)
-104. ((:) x0_<A>) [] == (take (succ 0)) (((:) x0_<A>) xs0_<[A]>)
-105. [] == (drop (succ (length xs0_<[A]>))) (reverse xs0_<[A]>)
-106. reverse xs0_<[A]> == (take (succ (length xs0_<[A]>))) (reverse xs0_<[A]>)
-107. ((++) (reverse xs0_<[A]>)) (((:) x0_<A>) xs1_<[A]>) == ((++) (reverse (((:) x0_<A>) xs0_<[A]>))) xs1_<[A]>
-108. (drop (succ 0)) (((++) xs0_<[A]>) xs0_<[A]>) == ((++) ((drop (succ 0)) xs0_<[A]>)) xs0_<[A]>
-109. [] == (drop (length (((++) xs0_<[A]>) xs1_<[A]>))) xs0_<[A]>
-110. [] == (drop (length (((++) xs0_<[A]>) xs1_<[A]>))) xs1_<[A]>
-111. reverse ((take x0_<Int>) (reverse xs0_<[A]>)) == (drop (length ((drop x0_<Int>) xs0_<[A]>))) xs0_<[A]>
-112. (drop x0_<Int>) xs0_<[A]> == (drop (length ((take x0_<Int>) xs0_<[A]>))) xs0_<[A]>
-113. [] == (drop (succ (succ (length xs0_<[A]>)))) xs0_<[A]>
-114. (drop x0_<Int>) ((drop (succ x0_<Int>)) xs0_<[A]>) == (drop (succ (((+) x0_<Int>) x0_<Int>))) xs0_<[A]>
-115. xs0_<[A]> == (take (length (((++) xs0_<[A]>) xs1_<[A]>))) xs0_<[A]>
-116. xs1_<[A]> == (take (length (((++) xs0_<[A]>) xs1_<[A]>))) xs1_<[A]>
-117. reverse ((drop x0_<Int>) (reverse xs0_<[A]>)) == (take (length ((drop x0_<Int>) xs0_<[A]>))) xs0_<[A]>
-118. (take x0_<Int>) ((take (length xs0_<[A]>)) xs1_<[A]>) == (take (length ((take x0_<Int>) xs0_<[A]>))) xs1_<[A]>
-119. xs0_<[A]> == (take (succ (succ (length xs0_<[A]>)))) xs0_<[A]>
-120. length (((++) xs0_<[A]>) (((++) xs1_<[A]>) xs2_<[A]>)) == length (((++) xs0_<[A]>) (((++) xs1_<[A]>) (reverse xs2_<[A]>)))
-121. length (((++) xs0_<[A]>) ((drop x0_<Int>) xs1_<[A]>)) == length (((++) xs0_<[A]>) ((drop x0_<Int>) (reverse xs1_<[A]>)))
-122. length (((++) xs0_<[A]>) ((take x0_<Int>) xs1_<[A]>)) == length (((++) xs0_<[A]>) ((take x0_<Int>) (reverse xs1_<[A]>)))
-123. length (((++) xs0_<[A]>) (((++) xs1_<[A]>) (concat xs0_<[[A]]>))) == length (((++) xs0_<[A]>) (((++) (concat xs0_<[[A]]>)) xs1_<[A]>))
-124. length (((++) xs0_<[A]>) (((++) xs1_<[A]>) xs2_<[A]>)) == length (((++) xs0_<[A]>) (((++) (reverse xs1_<[A]>)) xs2_<[A]>))
-125. length (((++) xs0_<[A]>) ((drop (length xs0_<[A]>)) xs1_<[A]>)) == length (((++) xs1_<[A]>) ((drop (length xs1_<[A]>)) xs0_<[A]>))
-126. length (((++) xs0_<[A]>) ((take (length xs1_<[A]>)) xs2_<[A]>)) == length (((++) xs0_<[A]>) ((take (length xs2_<[A]>)) xs1_<[A]>))
-127. length ((drop x0_<Int>) (((++) xs0_<[A]>) xs1_<[A]>)) == length ((drop x0_<Int>) (((++) xs0_<[A]>) (reverse xs1_<[A]>)))
-128. length ((drop x0_<Int>) (((:) x0_<A>) xs0_<[A]>)) == length ((drop x0_<Int>) (((:) x0_<A>) (reverse xs0_<[A]>)))
-129. length ((drop x0_<Int>) ((drop x1_<Int>) xs0_<[A]>)) == length ((drop x0_<Int>) ((drop x1_<Int>) (reverse xs0_<[A]>)))
-130. length ((drop x0_<Int>) ((take x1_<Int>) xs0_<[A]>)) == length ((drop x0_<Int>) ((take x1_<Int>) (reverse xs0_<[A]>)))
-131. length ((drop x0_<Int>) (((++) xs0_<[A]>) (concat xs0_<[[A]]>))) == length ((drop x0_<Int>) (((++) (concat xs0_<[[A]]>)) xs0_<[A]>))
-132. length ((drop x0_<Int>) (((++) xs0_<[A]>) xs1_<[A]>)) == length ((drop x0_<Int>) (((++) (reverse xs0_<[A]>)) xs1_<[A]>))
-133. length ((drop x0_<Int>) (((:) x0_<A>) xs0_<[A]>)) == length ((drop x0_<Int>) (((:) (f0_<A -> A> x0_<A>)) xs0_<[A]>))
-134. length ((drop x0_<Int>) (((:) x0_<A>) xs0_<[A]>)) == length ((drop x0_<Int>) (((:) (fst x0_<(A,A)>)) xs0_<[A]>))
-135. length ((drop x0_<Int>) (((:) x0_<A>) [])) == length ((drop x0_<Int>) (((:) (fst x0_<(A,A)>)) []))
-136. length ((drop x0_<Int>) (((:) x0_<A>) xs0_<[A]>)) == length ((drop x0_<Int>) (((:) (snd x0_<(A,A)>)) xs0_<[A]>))
-137. length ((drop x0_<Int>) (((:) x0_<A>) [])) == length ((drop x0_<Int>) (((:) (snd x0_<(A,A)>)) []))
-138. length ((drop x0_<Int>) ((take (length xs0_<[A]>)) xs1_<[A]>)) == length ((drop x0_<Int>) ((take (length xs1_<[A]>)) xs0_<[A]>))
-139. length ((take x0_<Int>) (((++) xs0_<[A]>) xs1_<[A]>)) == length ((take x0_<Int>) (((++) xs0_<[A]>) (reverse xs1_<[A]>)))
-140. length ((take x0_<Int>) (((:) x0_<A>) xs0_<[A]>)) == length ((take x0_<Int>) (((:) x0_<A>) (reverse xs0_<[A]>)))
-141. length ((take x0_<Int>) ((drop x1_<Int>) xs0_<[A]>)) == length ((take x0_<Int>) ((drop x1_<Int>) (reverse xs0_<[A]>)))
-142. length ((take x0_<Int>) ((take x1_<Int>) (concat xs0_<[[A]]>))) == length ((take x0_<Int>) ((take x1_<Int>) (concat xs2_<[[A]]>)))
-143. length ((take x0_<Int>) ((take x3_<Int>) (concat xs0_<[[A]]>))) == length ((take x0_<Int>) ((take x3_<Int>) (concat xs2_<[[A]]>)))
-144. length ((take x0_<Int>) ((take x1_<Int>) xs0_<[A]>)) == length ((take x0_<Int>) ((take x1_<Int>) (reverse xs0_<[A]>)))
-145. length ((take x0_<Int>) (((++) xs0_<[A]>) (concat xs0_<[[A]]>))) == length ((take x0_<Int>) (((++) (concat xs0_<[[A]]>)) xs0_<[A]>))
-146. length ((take x0_<Int>) (((++) xs0_<[A]>) xs1_<[A]>)) == length ((take x0_<Int>) (((++) (reverse xs0_<[A]>)) xs1_<[A]>))
-147. length ((take x0_<Int>) (((:) x0_<A>) xs0_<[A]>)) == length ((take x0_<Int>) (((:) (f0_<A -> A> x0_<A>)) xs0_<[A]>))
-148. length ((take x0_<Int>) (((:) x0_<A>) xs0_<[A]>)) == length ((take x0_<Int>) (((:) (fst x0_<(A,A)>)) xs0_<[A]>))
-149. length ((take x0_<Int>) (((:) x0_<A>) [])) == length ((take x0_<Int>) (((:) (fst x0_<(A,A)>)) []))
-150. length ((take x0_<Int>) (((:) x0_<A>) xs0_<[A]>)) == length ((take x0_<Int>) (((:) (snd x0_<(A,A)>)) xs0_<[A]>))
-151. length ((take x0_<Int>) (((:) x0_<A>) [])) == length ((take x0_<Int>) (((:) (snd x0_<(A,A)>)) []))
-152. length ((take x0_<Int>) ((take (length xs0_<[A]>)) xs1_<[A]>)) == length ((take x0_<Int>) ((take (length xs1_<[A]>)) xs0_<[A]>))
-153. length (((++) xs0_<[A]>) (((++) xs1_<[A]>) (concat xs0_<[[A]]>))) == length (((++) (concat xs0_<[[A]]>)) (((++) xs0_<[A]>) xs1_<[A]>))
-154. length (((++) xs0_<[A]>) (((++) xs1_<[A]>) xs2_<[A]>)) == length (((++) (reverse xs0_<[A]>)) (((++) xs1_<[A]>) xs2_<[A]>))
-155. length (((++) xs0_<[A]>) ((drop x0_<Int>) xs1_<[A]>)) == length (((++) (reverse xs0_<[A]>)) ((drop x0_<Int>) xs1_<[A]>))
-156. length (((++) xs0_<[A]>) ((take x0_<Int>) xs1_<[A]>)) == length (((++) (reverse xs0_<[A]>)) ((take x0_<Int>) xs1_<[A]>))
-157. length ((drop (length xs0_<[A]>)) (((++) xs1_<[A]>) xs2_<[A]>)) == length ((drop (length xs0_<[A]>)) (((++) xs2_<[A]>) xs1_<[A]>))
-158. length xs0_<[A]> == length ((drop (length xs1_<[A]>)) (((++) xs0_<[A]>) xs1_<[A]>))
-159. length ((drop (length xs0_<[A]>)) (((:) x0_<A>) xs1_<[A]>)) == length ((drop (length xs0_<[A]>)) (((:) x1_<A>) xs1_<[A]>))
-160. length ((drop (length xs0_<[A]>)) (((:) x0_<A>) xs2_<[A]>)) == length ((drop (length xs0_<[A]>)) (((:) x1_<A>) xs2_<[A]>))
-161. length ((drop (length xs0_<[A]>)) (((:) x0_<A>) xs3_<[A]>)) == length ((drop (length xs0_<[A]>)) (((:) x1_<A>) xs3_<[A]>))
-162. length ((drop (length xs0_<[A]>)) (((:) x0_<A>) xs1_<[A]>)) == length ((drop (length xs0_<[A]>)) (((:) x2_<A>) xs1_<[A]>))
-163. length ((drop (length xs0_<[A]>)) (((:) x0_<A>) xs2_<[A]>)) == length ((drop (length xs0_<[A]>)) (((:) x2_<A>) xs2_<[A]>))
-164. length ((drop (length xs0_<[A]>)) (((:) x0_<A>) xs3_<[A]>)) == length ((drop (length xs0_<[A]>)) (((:) x2_<A>) xs3_<[A]>))
-165. length ((drop (length xs0_<[A]>)) (((:) x0_<A>) xs1_<[A]>)) == length ((drop (length xs0_<[A]>)) (((:) x3_<A>) xs1_<[A]>))
-166. length ((drop (length xs0_<[A]>)) (((:) x0_<A>) xs2_<[A]>)) == length ((drop (length xs0_<[A]>)) (((:) x3_<A>) xs2_<[A]>))
-167. length ((drop (length xs0_<[A]>)) (((:) x0_<A>) xs3_<[A]>)) == length ((drop (length xs0_<[A]>)) (((:) x3_<A>) xs3_<[A]>))
-168. length ((drop (length xs1_<[A]>)) (((:) x0_<A>) xs0_<[A]>)) == length ((drop (length xs1_<[A]>)) (((:) x1_<A>) xs0_<[A]>))
-169. length ((drop (length xs1_<[A]>)) (((:) x0_<A>) xs2_<[A]>)) == length ((drop (length xs1_<[A]>)) (((:) x1_<A>) xs2_<[A]>))
-170. length ((drop (length xs1_<[A]>)) (((:) x0_<A>) xs3_<[A]>)) == length ((drop (length xs1_<[A]>)) (((:) x1_<A>) xs3_<[A]>))
-171. length ((drop (length xs1_<[A]>)) (((:) x0_<A>) xs0_<[A]>)) == length ((drop (length xs1_<[A]>)) (((:) x2_<A>) xs0_<[A]>))
-172. length ((drop (length xs1_<[A]>)) (((:) x0_<A>) xs2_<[A]>)) == length ((drop (length xs1_<[A]>)) (((:) x2_<A>) xs2_<[A]>))
-173. length ((drop (length xs1_<[A]>)) (((:) x0_<A>) xs3_<[A]>)) == length ((drop (length xs1_<[A]>)) (((:) x2_<A>) xs3_<[A]>))
-174. length ((drop (length xs1_<[A]>)) (((:) x0_<A>) xs0_<[A]>)) == length ((drop (length xs1_<[A]>)) (((:) x3_<A>) xs0_<[A]>))
-175. length ((drop (length xs1_<[A]>)) (((:) x0_<A>) xs2_<[A]>)) == length ((drop (length xs1_<[A]>)) (((:) x3_<A>) xs2_<[A]>))
-176. length ((drop (length xs1_<[A]>)) (((:) x0_<A>) xs3_<[A]>)) == length ((drop (length xs1_<[A]>)) (((:) x3_<A>) xs3_<[A]>))
-177. length ((drop (length xs2_<[A]>)) (((:) x0_<A>) xs0_<[A]>)) == length ((drop (length xs2_<[A]>)) (((:) x1_<A>) xs0_<[A]>))
-178. length ((drop (length xs2_<[A]>)) (((:) x0_<A>) xs1_<[A]>)) == length ((drop (length xs2_<[A]>)) (((:) x1_<A>) xs1_<[A]>))
-179. length ((drop (length xs2_<[A]>)) (((:) x0_<A>) xs3_<[A]>)) == length ((drop (length xs2_<[A]>)) (((:) x1_<A>) xs3_<[A]>))
-180. length ((drop (length xs2_<[A]>)) (((:) x0_<A>) xs0_<[A]>)) == length ((drop (length xs2_<[A]>)) (((:) x2_<A>) xs0_<[A]>))
-181. length ((drop (length xs2_<[A]>)) (((:) x0_<A>) xs1_<[A]>)) == length ((drop (length xs2_<[A]>)) (((:) x2_<A>) xs1_<[A]>))
-182. length ((drop (length xs2_<[A]>)) (((:) x0_<A>) xs3_<[A]>)) == length ((drop (length xs2_<[A]>)) (((:) x2_<A>) xs3_<[A]>))
-183. length ((drop (length xs2_<[A]>)) (((:) x0_<A>) xs0_<[A]>)) == length ((drop (length xs2_<[A]>)) (((:) x3_<A>) xs0_<[A]>))
-184. length ((drop (length xs2_<[A]>)) (((:) x0_<A>) xs1_<[A]>)) == length ((drop (length xs2_<[A]>)) (((:) x3_<A>) xs1_<[A]>))
-185. length ((drop (length xs2_<[A]>)) (((:) x0_<A>) xs3_<[A]>)) == length ((drop (length xs2_<[A]>)) (((:) x3_<A>) xs3_<[A]>))
-186. length ((drop (length xs3_<[A]>)) (((:) x0_<A>) xs0_<[A]>)) == length ((drop (length xs3_<[A]>)) (((:) x1_<A>) xs0_<[A]>))
-187. length ((drop (length xs3_<[A]>)) (((:) x0_<A>) xs1_<[A]>)) == length ((drop (length xs3_<[A]>)) (((:) x1_<A>) xs1_<[A]>))
-188. length ((drop (length xs3_<[A]>)) (((:) x0_<A>) xs2_<[A]>)) == length ((drop (length xs3_<[A]>)) (((:) x1_<A>) xs2_<[A]>))
-189. length ((drop (length xs3_<[A]>)) (((:) x0_<A>) xs0_<[A]>)) == length ((drop (length xs3_<[A]>)) (((:) x2_<A>) xs0_<[A]>))
-190. length ((drop (length xs3_<[A]>)) (((:) x0_<A>) xs1_<[A]>)) == length ((drop (length xs3_<[A]>)) (((:) x2_<A>) xs1_<[A]>))
-191. length ((drop (length xs3_<[A]>)) (((:) x0_<A>) xs2_<[A]>)) == length ((drop (length xs3_<[A]>)) (((:) x2_<A>) xs2_<[A]>))
-192. length ((drop (length xs3_<[A]>)) (((:) x0_<A>) xs0_<[A]>)) == length ((drop (length xs3_<[A]>)) (((:) x3_<A>) xs0_<[A]>))
-193. length ((drop (length xs3_<[A]>)) (((:) x0_<A>) xs1_<[A]>)) == length ((drop (length xs3_<[A]>)) (((:) x3_<A>) xs1_<[A]>))
-194. length ((drop (length xs3_<[A]>)) (((:) x0_<A>) xs2_<[A]>)) == length ((drop (length xs3_<[A]>)) (((:) x3_<A>) xs2_<[A]>))
-195. succ 0 == length ((drop (length xs0_<[A]>)) (((:) x0_<A>) xs0_<[A]>))
-196. length ((drop (succ 0)) (((++) xs0_<[A]>) xs1_<[A]>)) == length ((drop (succ 0)) (((++) xs1_<[A]>) xs0_<[A]>))
-197. length (((++) xs0_<[A]>) ((drop (succ 0)) xs0_<[A]>)) == length ((drop (succ 0)) (((++) xs0_<[A]>) xs0_<[A]>))
-198. length ((take (length xs0_<[A]>)) (((++) xs1_<[A]>) xs2_<[A]>)) == length ((take (length xs0_<[A]>)) (((++) xs2_<[A]>) xs1_<[A]>))
-199. length xs1_<[A]> == length ((take (length xs1_<[A]>)) (((++) xs0_<[A]>) xs1_<[A]>))
-200. length ((take (succ (length xs1_<[A]>))) xs0_<[A]>) == length ((take (length xs0_<[A]>)) (((:) x0_<A>) xs1_<[A]>))
-201. length ((take (succ 0)) (((++) xs0_<[A]>) xs1_<[A]>)) == length ((take (succ 0)) (((++) xs1_<[A]>) xs0_<[A]>))
-202. length ((take (succ 0)) (((++) xs1_<[A]>) xs2_<[A]>)) == length ((take (succ 0)) (((++) xs1_<[A]>) xs3_<[A]>))
-203. length ((take (succ 0)) (((++) xs1_<[A]>) xs2_<[A]>)) == length ((take (succ 0)) (((++) xs2_<[A]>) xs3_<[A]>))
-204. ((+) (length xs0_<[A]>)) (sum xs0_<[Int]>) == ((+) 0) (((+) (length xs0_<[A]>)) (sum xs0_<[Int]>))
-205. ((+) (sum xs0_<[Int]>)) (sum xs1_<[Int]>) == ((+) 0) (((+) (sum xs0_<[Int]>)) (sum xs1_<[Int]>))
-206. succ (((+) x0_<Int>) (length (((++) xs0_<[A]>) xs1_<[A]>))) == ((+) (succ x0_<Int>)) (length (((++) xs0_<[A]>) xs1_<[A]>))
-207. succ (((+) x0_<Int>) (length ((drop x1_<Int>) xs0_<[A]>))) == ((+) (succ x0_<Int>)) (length ((drop x1_<Int>) xs0_<[A]>))
-208. succ (((+) x0_<Int>) (length ((take x1_<Int>) xs0_<[A]>))) == ((+) (succ x0_<Int>)) (length ((take x1_<Int>) xs0_<[A]>))
-209. (zip xs0_<[A]>) xs0_<[A]> == (zip xs0_<[A]>) (reverse (((:) x0_<A>) (reverse xs0_<[A]>)))
-210. (zip xs0_<[A]>) (((++) xs1_<[A]>) xs0_<[A]>) == (zip xs0_<[A]>) (((++) xs1_<[A]>) (((++) xs0_<[A]>) xs2_<[A]>))
-211. (zip xs0_<[A]>) (((:) x0_<A>) xs0_<[A]>) == (zip xs0_<[A]>) (((:) x0_<A>) (((++) xs0_<[A]>) xs1_<[A]>))
-212. (zip xs0_<[A]>) ((map f0_<A -> A>) xs0_<[A]>) == (zip xs0_<[A]>) ((map f0_<A -> A>) (((++) xs0_<[A]>) xs1_<[A]>))
-213. (zip xs0_<[A]>) ((take x0_<Int>) xs0_<[A]>) == (zip xs0_<[A]>) ((take x0_<Int>) (((++) xs0_<[A]>) xs1_<[A]>))
-214. (zip xs0_<[A]>) ((map f0_<A -> A>) xs0_<[A]>) == (zip xs0_<[A]>) (((++) ((map f0_<A -> A>) xs0_<[A]>)) xs1_<[A]>)
-215. (zip xs0_<[A]>) xs1_<[A]> == (zip xs0_<[A]>) ((take (succ (length xs0_<[A]>))) xs1_<[A]>)
-216. (zip (reverse xs0_<[A]>)) (reverse xs0_<[A]>) == (zip (reverse xs0_<[A]>)) (reverse (((++) xs1_<[A]>) xs0_<[A]>))
-217. (zip (reverse xs0_<[A]>)) (reverse xs0_<[A]>) == (zip (reverse xs0_<[A]>)) (reverse (((:) x0_<A>) xs0_<[A]>))
-218. (zip (reverse xs0_<[A]>)) xs1_<[A]> == (zip (reverse xs0_<[A]>)) ((take (length xs0_<[A]>)) xs1_<[A]>)
-219. (zip xs0_<[A]>) (((:) x0_<A>) []) == (zip (((++) xs0_<[A]>) xs0_<[A]>)) (((:) x0_<A>) [])
-220. (zip xs0_<[A]>) ((drop x0_<Int>) xs0_<[A]>) == (zip (((++) xs0_<[A]>) xs1_<[A]>)) ((drop x0_<Int>) xs0_<[A]>)
-221. (zip xs0_<[A]>) ((map f0_<A -> A>) xs0_<[A]>) == (zip (((++) xs0_<[A]>) xs1_<[A]>)) ((map f0_<A -> A>) xs0_<[A]>)
-222. (zip xs0_<[A]>) ((take x0_<Int>) xs0_<[A]>) == (zip (((++) xs0_<[A]>) xs1_<[A]>)) ((take x0_<Int>) xs0_<[A]>)
-223. (zip (((:) x0_<A>) [])) xs0_<[A]> == (zip (((:) x0_<A>) [])) (((++) xs0_<[A]>) xs0_<[A]>)
-224. (zip (((:) x0_<A>) xs0_<[A]>)) (((:) x1_<A>) []) == (zip (((:) x0_<A>) [])) (((:) x1_<A>) xs0_<[A]>)
-225. (zip (((:) x0_<A>) xs0_<[A]>)) (((:) x1_<A>) []) == (zip (((:) x0_<A>) [])) (((:) x1_<A>) [])
-226. (zip ((drop x0_<Int>) xs0_<[A]>)) xs0_<[A]> == (zip ((drop x0_<Int>) xs0_<[A]>)) (((++) xs0_<[A]>) xs1_<[A]>)
-227. (zip ((map f0_<A -> A>) xs0_<[A]>)) xs0_<[A]> == (zip ((map f0_<A -> A>) xs0_<[A]>)) (((++) xs0_<[A]>) xs1_<[A]>)
-228. (zip (reverse xs1_<[A]>)) (reverse xs1_<[A]>) == (zip (reverse (((++) xs0_<[A]>) xs1_<[A]>))) (reverse xs1_<[A]>)
-229. (zip (reverse xs0_<[A]>)) (reverse xs0_<[A]>) == (zip (reverse (((:) x0_<A>) xs0_<[A]>))) (reverse xs0_<[A]>)
-230. (zip (reverse xs0_<[A]>)) (reverse ((drop x0_<Int>) xs0_<[A]>)) == (zip (reverse ((drop x0_<Int>) xs0_<[A]>))) (reverse xs0_<[A]>)
-231. (zip xs0_<[A]>) xs0_<[A]> == (zip (reverse (((:) x0_<A>) (reverse xs0_<[A]>)))) xs0_<[A]>
-232. (zip xs0_<[A]>) (reverse ((drop x0_<Int>) (reverse xs0_<[A]>))) == (zip (reverse ((drop x0_<Int>) (reverse xs0_<[A]>)))) xs0_<[A]>
-233. (zip (((++) xs0_<[A]>) xs1_<[A]>)) xs1_<[A]> == (zip (((++) xs0_<[A]>) (((++) xs1_<[A]>) xs2_<[A]>))) xs1_<[A]>
-234. (zip (((:) x0_<A>) xs0_<[A]>)) xs0_<[A]> == (zip (((:) x0_<A>) (((++) xs0_<[A]>) xs1_<[A]>))) xs0_<[A]>
-235. (zip ((map f0_<A -> A>) xs0_<[A]>)) xs0_<[A]> == (zip ((map f0_<A -> A>) (((++) xs0_<[A]>) xs1_<[A]>))) xs0_<[A]>
-236. (zip ((map f0_<A -> A>) xs0_<[A]>)) ((take x0_<Int>) xs1_<[A]>) == (zip ((map f0_<A -> A>) ((take x0_<Int>) xs0_<[A]>))) xs1_<[A]>
-237. (zip ((map f0_<A -> A>) xs0_<[A]>)) xs0_<[A]> == (zip (((++) ((map f0_<A -> A>) xs0_<[A]>)) xs1_<[A]>)) xs0_<[A]>
-238. reverse (((++) xs0_<[A]>) (((++) xs1_<[A]>) (reverse xs2_<[A]>))) == ((++) xs2_<[A]>) (reverse (((++) xs0_<[A]>) xs1_<[A]>))
-239. reverse (((++) xs0_<[A]>) (((:) x0_<A>) (reverse xs1_<[A]>))) == ((++) xs1_<[A]>) (((:) x0_<A>) (reverse xs0_<[A]>))
-240. reverse (((:) x0_<A>) (((++) xs0_<[A]>) (reverse xs1_<[A]>))) == ((++) xs1_<[A]>) (reverse (((:) x0_<A>) xs0_<[A]>))
-241. (drop x0_<Int>) ((take (succ x0_<Int>)) xs0_<[A]>) == reverse ((drop x0_<Int>) ((take (succ x0_<Int>)) xs0_<[A]>))
-242. (drop x0_<Int>) ((take (succ 0)) xs0_<[A]>) == reverse ((drop x0_<Int>) ((take (succ 0)) xs0_<[A]>))
-243. reverse ((map f0_<A -> A>) (((++) xs0_<[A]>) (reverse xs1_<[A]>))) == (map f0_<A -> A>) (((++) xs1_<[A]>) (reverse xs0_<[A]>))
-244. reverse ((map f0_<A -> A>) (((++) (reverse xs0_<[A]>)) xs1_<[A]>)) == (map f0_<A -> A>) (((++) (reverse xs1_<[A]>)) xs0_<[A]>)
-245. (map f0_<A -> A>) ((take (succ 0)) xs0_<[A]>) == reverse ((map f0_<A -> A>) ((take (succ 0)) xs0_<[A]>))
-246. (take x0_<Int>) ((take (succ 0)) xs0_<[A]>) == reverse ((take x0_<Int>) ((take (succ 0)) xs0_<[A]>))
-247. (drop (length xs0_<[A]>)) (((:) x0_<A>) xs0_<[A]>) == reverse ((drop (length xs0_<[A]>)) (((:) x0_<A>) xs0_<[A]>))
-248. reverse (((:) x0_<A>) (reverse (((++) xs0_<[A]>) xs1_<[A]>))) == ((++) xs0_<[A]>) (reverse (((:) x0_<A>) (reverse xs1_<[A]>)))
-249. ((++) xs0_<[A]>) (((:) x0_<A>) (((:) x1_<A>) [])) == reverse (((:) x1_<A>) (((:) x0_<A>) (reverse xs0_<[A]>)))
-250. ((:) x0_<A>) (reverse (((:) x1_<A>) (reverse xs0_<[A]>))) == reverse (((:) x1_<A>) (reverse (((:) x0_<A>) xs0_<[A]>)))
-251. (drop x0_<Int>) (reverse ((drop x1_<Int>) (reverse xs0_<[A]>))) == reverse ((drop x1_<Int>) (reverse ((drop x0_<Int>) xs0_<[A]>)))
-252. (drop x0_<Int>) (((:) x0_<A>) ((drop x0_<Int>) xs0_<[A]>)) == (drop x0_<Int>) ((drop x0_<Int>) (((:) x0_<A>) xs0_<[A]>))
-253. [] == (drop x0_<Int>) ((drop x1_<Int>) ((take x0_<Int>) xs0_<[A]>))
-254. [] == (drop x0_<Int>) ((map f0_<A -> A>) ((take x0_<Int>) xs0_<[A]>))
-255. (drop x1_<Int>) ((drop x1_<Int>) ((take x0_<Int>) xs0_<[A]>)) == (drop x1_<Int>) ((take x0_<Int>) ((drop x1_<Int>) xs0_<[A]>))
-256. [] == (drop x1_<Int>) ((take x0_<Int>) ((take x1_<Int>) xs0_<[A]>))
-257. (drop x0_<Int>) ((drop x0_<Int>) (((++) xs0_<[A]>) xs0_<[A]>)) == (drop x0_<Int>) (((++) ((drop x0_<Int>) xs0_<[A]>)) xs0_<[A]>)
-258. (take x0_<Int>) ((drop x0_<Int>) xs0_<[A]>) == (drop x0_<Int>) ((take (((+) x0_<Int>) x0_<Int>)) xs0_<[A]>)
-259. (take x0_<Int>) (((:) (f0_<A -> A> x0_<A>)) []) == (map f0_<A -> A>) ((take x0_<Int>) (((:) x0_<A>) []))
-260. (take x0_<Int>) xs0_<[A]> == (take x0_<Int>) (((++) xs0_<[A]>) ((drop x0_<Int>) xs0_<[A]>))
-261. (take x0_<Int>) (((++) xs0_<[A]>) xs1_<[A]>) == (take x0_<Int>) (((++) xs0_<[A]>) ((take x0_<Int>) xs1_<[A]>))
-262. (take x0_<Int>) (((:) x0_<A>) xs0_<[A]>) == (take x0_<Int>) (((:) x0_<A>) ((take x0_<Int>) xs0_<[A]>))
-263. (drop x1_<Int>) ((take x0_<Int>) (((:) x0_<A>) [])) == (take x0_<Int>) ((drop x1_<Int>) (((:) x0_<A>) []))
-264. (map f0_<A -> A>) ((take x0_<Int>) ((drop x1_<Int>) xs0_<[A]>)) == (take x0_<Int>) ((drop x1_<Int>) ((map f0_<A -> A>) xs0_<[A]>))
-265. (drop x2_<Int>) ((take x0_<Int>) ((take x3_<Int>) xs3_<[A]>)) == (take x0_<Int>) ((drop x2_<Int>) ((take x3_<Int>) xs3_<[A]>))
-266. (take x0_<Int>) (((++) xs0_<[A]>) xs1_<[A]>) == (take x0_<Int>) (((++) ((take x0_<Int>) xs0_<[A]>)) xs1_<[A]>)
-267. (take x0_<Int>) xs0_<[A]> == (take x0_<Int>) ((take (succ (succ x0_<Int>))) xs0_<[A]>)
-268. (take x0_<Int>) xs0_<[A]> == (take x0_<Int>) ((take (((+) x0_<Int>) x0_<Int>)) xs0_<[A]>)
-269. ((++) (reverse xs0_<[A]>)) (((++) xs1_<[A]>) (reverse xs2_<[A]>)) == reverse (((++) xs2_<[A]>) (((++) (reverse xs1_<[A]>)) xs0_<[A]>))
-270. ((++) (reverse xs0_<[A]>)) (((:) x0_<A>) (reverse xs1_<[A]>)) == reverse (((++) xs1_<[A]>) (((:) x0_<A>) xs0_<[A]>))
-271. ((++) (reverse xs0_<[A]>)) (((++) (reverse xs1_<[A]>)) xs2_<[A]>) == ((++) (reverse (((++) xs1_<[A]>) xs0_<[A]>))) xs2_<[A]>
-272. ((++) (reverse xs0_<[A]>)) ((take (succ 0)) xs1_<[A]>) == reverse (((++) ((take (succ 0)) xs1_<[A]>)) xs0_<[A]>)
-273. (map f0_<A -> A>) (((:) x0_<A>) (reverse xs0_<[A]>)) == ((:) (f0_<A -> A> x0_<A>)) (reverse ((map f0_<A -> A>) xs0_<[A]>))
-274. (map f0_<A -> A>) (((:) x0_<A>) (((:) x1_<A>) [])) == ((:) (f0_<A -> A> x0_<A>)) (((:) (f0_<A -> A> x1_<A>)) [])
-275. reverse ((take (length xs1_<[A]>)) (((++) xs0_<[A]>) xs1_<[A]>)) == (drop (length xs0_<[A]>)) (reverse (((++) xs0_<[A]>) xs1_<[A]>))
-276. reverse xs1_<[A]> == (drop (length xs0_<[A]>)) (reverse (((++) xs1_<[A]>) xs0_<[A]>))
-277. ((:) x0_<A>) [] == (drop (length xs0_<[A]>)) (reverse (((:) x0_<A>) xs0_<[A]>))
-278. [] == (drop (length xs0_<[A]>)) (reverse ((drop x0_<Int>) xs0_<[A]>))
-279. (map f0_<A -> A>) ((drop (length xs0_<[A]>)) (reverse xs1_<[A]>)) == (drop (length xs0_<[A]>)) (reverse ((map f0_<A -> A>) xs1_<[A]>))
-280. [] == (drop (length xs0_<[A]>)) (reverse ((take x0_<Int>) xs0_<[A]>))
-281. [] == (drop (length xs0_<[A]>)) ((take x0_<Int>) (reverse xs0_<[A]>))
-282. xs1_<[A]> == (drop (length xs0_<[A]>)) (((++) (reverse xs0_<[A]>)) xs1_<[A]>)
-283. (drop (length (((++) xs0_<[A]>) xs1_<[A]>))) xs2_<[A]> == (drop (length xs0_<[A]>)) ((drop (length xs1_<[A]>)) xs2_<[A]>)
-284. [] == (drop (length xs0_<[A]>)) ((drop (succ x0_<Int>)) xs0_<[A]>)
-285. (drop (succ (length xs0_<[A]>))) xs1_<[A]> == (drop (length xs0_<[A]>)) ((drop (succ 0)) xs1_<[A]>)
-286. [] == (drop (length xs0_<[A]>)) ((drop (sum xs0_<[Int]>)) xs0_<[A]>)
-287. (map f0_<A -> A>) ((drop (succ x0_<Int>)) (reverse xs0_<[A]>)) == (drop (succ x0_<Int>)) (reverse ((map f0_<A -> A>) xs0_<[A]>))
-288. [] == (drop (succ x0_<Int>)) (reverse ((take x0_<Int>) xs0_<[A]>))
-289. (drop (succ 0)) (reverse (((:) x0_<A>) xs0_<[A]>)) == reverse ((take (length xs0_<[A]>)) (((:) x0_<A>) xs0_<[A]>))
-290. (drop (succ (succ 0))) xs0_<[A]> == (drop (succ 0)) ((drop (succ 0)) xs0_<[A]>)
-291. (take x0_<Int>) ((drop (succ 0)) xs0_<[A]>) == (drop (succ 0)) ((take (succ x0_<Int>)) xs0_<[A]>)
-292. (map f0_<A -> A>) ((drop (sum xs0_<[Int]>)) (reverse xs0_<[A]>)) == (drop (sum xs0_<[Int]>)) (reverse ((map f0_<A -> A>) xs0_<[A]>))
-293. reverse ((drop (length xs1_<[A]>)) (((++) xs0_<[A]>) xs1_<[A]>)) == (take (length xs0_<[A]>)) (reverse (((++) xs0_<[A]>) xs1_<[A]>))
-294. reverse xs0_<[A]> == (take (length xs0_<[A]>)) (reverse (((++) xs1_<[A]>) xs0_<[A]>))
-295. reverse xs0_<[A]> == (take (length xs0_<[A]>)) (reverse (((:) x0_<A>) xs0_<[A]>))
-296. reverse ((drop x0_<Int>) xs0_<[A]>) == (take (length xs0_<[A]>)) (reverse ((drop x0_<Int>) xs0_<[A]>))
-297. reverse ((take x0_<Int>) xs0_<[A]>) == (take (length xs0_<[A]>)) (reverse ((take x0_<Int>) xs0_<[A]>))
-298. (drop x0_<Int>) (reverse xs0_<[A]>) == (take (length xs0_<[A]>)) ((drop x0_<Int>) (reverse xs0_<[A]>))
-299. reverse xs0_<[A]> == (take (length xs0_<[A]>)) (((++) (reverse xs0_<[A]>)) xs1_<[A]>)
-300. (take (length xs1_<[A]>)) xs0_<[A]> == (take (length xs0_<[A]>)) ((take (length xs1_<[A]>)) xs0_<[A]>)
-301. (take (succ x0_<Int>)) xs0_<[A]> == (take (length xs0_<[A]>)) ((take (succ x0_<Int>)) xs0_<[A]>)
-302. (take (sum xs0_<[Int]>)) xs0_<[A]> == (take (length xs0_<[A]>)) ((take (sum xs0_<[Int]>)) xs0_<[A]>)
-303. reverse ((take x0_<Int>) xs0_<[A]>) == (take (succ x0_<Int>)) (reverse ((take x0_<Int>) xs0_<[A]>))
-304. (take (succ 0)) (reverse xs0_<[A]>) == (take (succ 0)) (reverse (((++) xs0_<[A]>) xs0_<[A]>))
-305. (drop (length xs0_<[A]>)) (((:) x0_<A>) xs0_<[A]>) == (take (succ 0)) (reverse (((:) x0_<A>) xs0_<[A]>))
-306. (take (succ 0)) xs0_<[A]> == (take (succ 0)) (((++) xs0_<[A]>) (reverse xs0_<[A]>))
-307. (take (succ 0)) (reverse xs0_<[A]>) == (take (succ 0)) (((++) (reverse xs0_<[A]>)) xs0_<[A]>)
-308. (drop x0_<Int>) (((++) xs0_<[A]>) ((drop x0_<Int>) xs0_<[A]>)) == ((++) ((drop x0_<Int>) xs0_<[A]>)) ((drop x0_<Int>) xs0_<[A]>)
-309. (map f0_<A -> A>) (((++) xs0_<[A]>) xs1_<[A]>) == ((++) ((map f0_<A -> A>) xs0_<[A]>)) ((map f0_<A -> A>) xs1_<[A]>)
-310. xs0_<[A]> == ((++) ((take x0_<Int>) xs0_<[A]>)) ((drop x0_<Int>) xs0_<[A]>)
-311. (drop (succ 0)) xs1_<[A]> == (drop (succ (length xs0_<[A]>))) (((++) xs0_<[A]>) xs1_<[A]>)
-312. (drop (length xs0_<[A]>)) xs1_<[A]> == (drop (succ (length xs0_<[A]>))) (((:) x0_<A>) xs1_<[A]>)
-313. [] == (drop (succ (length xs0_<[A]>))) ((take x0_<Int>) xs0_<[A]>)
-314. [] == (drop (succ (succ x0_<Int>))) ((take x0_<Int>) xs0_<[A]>)
-315. (drop (succ 0)) xs0_<[A]> == (drop (succ (succ 0))) (((:) x0_<A>) xs0_<[A]>)
-316. ((++) xs0_<[A]>) ((take (succ 0)) xs1_<[A]>) == (take (succ (length xs0_<[A]>))) (((++) xs0_<[A]>) xs1_<[A]>)
-317. ((:) x0_<A>) ((take (length xs0_<[A]>)) xs1_<[A]>) == (take (succ (length xs0_<[A]>))) (((:) x0_<A>) xs1_<[A]>)
-318. (drop x0_<Int>) xs0_<[A]> == (take (succ (length xs0_<[A]>))) ((drop x0_<Int>) xs0_<[A]>)
-319. ((:) x0_<A>) ((take (succ 0)) xs0_<[A]>) == (take (succ (succ 0))) (((:) x0_<A>) xs0_<[A]>)
-320. (take x0_<Int>) (((:) x0_<A>) []) == (take (((+) x0_<Int>) x0_<Int>)) (((:) x0_<A>) [])
-321. (drop (succ 0)) (((++) xs0_<[A]>) (reverse xs0_<[A]>)) == ((++) ((drop (succ 0)) xs0_<[A]>)) (reverse xs0_<[A]>)
-322. ((++) ((take (succ 0)) xs0_<[A]>)) (reverse xs1_<[A]>) == reverse (((++) xs1_<[A]>) ((take (succ 0)) xs0_<[A]>))
-323. [] == (drop (length (((++) xs0_<[A]>) xs1_<[A]>))) (reverse xs0_<[A]>)
-324. [] == (drop (length (((++) xs0_<[A]>) xs1_<[A]>))) (reverse xs1_<[A]>)
-325. reverse ((take x0_<Int>) xs0_<[A]>) == (drop (length ((drop x0_<Int>) xs0_<[A]>))) (reverse xs0_<[A]>)
-326. (drop x0_<Int>) (reverse xs0_<[A]>) == (drop (length ((take x0_<Int>) xs0_<[A]>))) (reverse xs0_<[A]>)
-327. [] == (drop (succ (succ (length xs0_<[A]>)))) (reverse xs0_<[A]>)
-328. reverse xs0_<[A]> == (take (length (((++) xs0_<[A]>) xs1_<[A]>))) (reverse xs0_<[A]>)
-329. reverse xs1_<[A]> == (take (length (((++) xs0_<[A]>) xs1_<[A]>))) (reverse xs1_<[A]>)
-330. reverse ((drop x0_<Int>) xs0_<[A]>) == (take (length ((drop x0_<Int>) xs0_<[A]>))) (reverse xs0_<[A]>)
-331. reverse xs0_<[A]> == (take (succ (succ (length xs0_<[A]>)))) (reverse xs0_<[A]>)
-332. ((++) (reverse xs0_<[A]>)) ((drop (succ 0)) xs0_<[A]>) == ((++) (reverse ((drop (succ 0)) xs0_<[A]>))) xs0_<[A]>
-333. (drop (succ 0)) (((++) (reverse xs0_<[A]>)) xs0_<[A]>) == ((++) ((drop (succ 0)) (reverse xs0_<[A]>))) xs0_<[A]>
-334. [] == (drop (length (((++) xs3_<[A]>) (concat xs0_<[[A]]>)))) xs1_<[A]>
-335. (drop (length xs1_<[A]>)) xs0_<[A]> == (drop (length ((take (length xs0_<[A]>)) xs1_<[A]>))) xs0_<[A]>
-336. [] == (drop (succ (length (((++) xs0_<[A]>) xs1_<[A]>)))) xs0_<[A]>
-337. [] == (drop (succ (length (((++) xs0_<[A]>) xs1_<[A]>)))) xs1_<[A]>
-338. (drop x0_<Int>) ((drop (succ 0)) xs0_<[A]>) == (drop (succ (length ((take x0_<Int>) xs0_<[A]>)))) xs0_<[A]>
-339. [] == (drop (succ (succ (succ (length xs0_<[A]>))))) xs0_<[A]>
-340. (drop (succ x0_<Int>)) ((drop (succ x0_<Int>)) xs0_<[A]>) == (drop (succ (succ (((+) x0_<Int>) x0_<Int>)))) xs0_<[A]>
-341. (drop x0_<Int>) ((drop (length (concat xs0_<[[A]]>))) xs0_<[A]>) == (drop (((+) x0_<Int>) (length (concat xs0_<[[A]]>)))) xs0_<[A]>
-342. (drop x0_<Int>) ((drop x0_<Int>) ((drop x0_<Int>) xs0_<[A]>)) == (drop (((+) x0_<Int>) (((+) x0_<Int>) x0_<Int>))) xs0_<[A]>
-343. xs1_<[A]> == (take (length (((++) xs3_<[A]>) (concat xs0_<[[A]]>)))) xs1_<[A]>
-344. xs0_<[A]> == (take (succ (length (((++) xs0_<[A]>) xs1_<[A]>)))) xs0_<[A]>
-345. xs1_<[A]> == (take (succ (length (((++) xs0_<[A]>) xs1_<[A]>)))) xs1_<[A]>
-346. xs0_<[A]> == (take (succ (succ (succ (length xs0_<[A]>))))) xs0_<[A]>
+9. (zip xs0_<[A]>) [] == (zip []) xs0_<[A]>
+10. sort xs0_<[Int]> == sort (sort xs0_<[Int]>)
+11. xs0_<[A]> == reverse (reverse xs0_<[A]>)
+12. xs0_<[A]> == ((++) xs0_<[A]>) []
+13. xs0_<[A]> == ((++) []) xs0_<[A]>
+14. [] == (drop x0_<Int>) []
+15. xs0_<[A]> == (drop 0) xs0_<[A]>
+16. [] == (map f0_<A -> A>) []
+17. [] == (take x0_<Int>) []
+18. [] == (take 0) xs0_<[A]>
+19. length (((++) xs0_<[A]>) xs1_<[A]>) == length (((++) xs1_<[A]>) xs0_<[A]>)
+20. succ (length xs0_<[A]>) == length (((:) x0_<A>) xs0_<[A]>)
+21. length xs0_<[A]> == length ((map f0_<A -> A>) xs0_<[A]>)
+22. succ (((+) x0_<Int>) x1_<Int>) == ((+) x0_<Int>) (succ x1_<Int>)
+23. x0_<A> == fst (((,) x0_<A>) x1_<A>)
+24. x1_<A> == snd (((,) x0_<A>) x1_<A>)
+25. ((:) x0_<A>) [] == reverse (((:) x0_<A>) [])
+26. reverse ((map f0_<A -> A>) xs0_<[A]>) == (map f0_<A -> A>) (reverse xs0_<[A]>)
+27. [] == (drop (length xs0_<[A]>)) xs0_<[A]>
+28. xs0_<[A]> == (take (length xs0_<[A]>)) xs0_<[A]>
+29. x0_<(A,A)> == ((,) (fst x0_<(A,A)>)) (snd x0_<(A,A)>)
+30. length (((++) xs0_<[A]>) xs1_<[A]>) == length (((++) xs0_<[A]>) (reverse xs1_<[A]>))
+31. length ((drop x0_<Int>) xs0_<[A]>) == length ((drop x0_<Int>) (reverse xs0_<[A]>))
+32. length ((take x0_<Int>) xs0_<[A]>) == length ((take x0_<Int>) (reverse xs0_<[A]>))
+33. length ((take (length xs0_<[A]>)) xs1_<[A]>) == length ((take (length xs1_<[A]>)) xs0_<[A]>)
+34. ((+) x0_<Int>) (((+) x1_<Int>) x2_<Int>) == ((+) x1_<Int>) (((+) x0_<Int>) x2_<Int>)
+35. length (((++) xs0_<[A]>) xs1_<[A]>) == ((+) (length xs0_<[A]>)) (length xs1_<[A]>)
+36. (zip xs0_<[A]>) xs0_<[A]> == (zip xs0_<[A]>) (((++) xs0_<[A]>) xs1_<[A]>)
+37. (zip xs0_<[A]>) xs0_<[A]> == (zip (((++) xs0_<[A]>) xs1_<[A]>)) xs0_<[A]>
+38. (zip xs0_<[A]>) ((take x0_<Int>) xs1_<[A]>) == (zip ((take x0_<Int>) xs0_<[A]>)) xs1_<[A]>
+39. ((++) xs1_<[A]>) (reverse xs0_<[A]>) == reverse (((++) xs0_<[A]>) (reverse xs1_<[A]>))
+40. (take (succ 0)) xs0_<[A]> == reverse ((take (succ 0)) xs0_<[A]>)
+41. reverse (((:) x0_<A>) (reverse xs0_<[A]>)) == ((++) xs0_<[A]>) (((:) x0_<A>) [])
+42. (drop x0_<Int>) ((drop x1_<Int>) xs0_<[A]>) == (drop x1_<Int>) ((drop x0_<Int>) xs0_<[A]>)
+43. [] == (drop x0_<Int>) ((take x0_<Int>) xs0_<[A]>)
+44. ((:) (f0_<A -> A> x0_<A>)) [] == (map f0_<A -> A>) (((:) x0_<A>) [])
+45. (drop x0_<Int>) ((map f0_<A -> A>) xs0_<[A]>) == (map f0_<A -> A>) ((drop x0_<Int>) xs0_<[A]>)
+46. (map f0_<A -> A>) ((take x0_<Int>) xs0_<[A]>) == (take x0_<Int>) ((map f0_<A -> A>) xs0_<[A]>)
+47. (take x0_<Int>) ((take x1_<Int>) xs0_<[A]>) == (take x1_<Int>) ((take x0_<Int>) xs0_<[A]>)
+48. (take x0_<Int>) xs0_<[A]> == (take x0_<Int>) ((take x0_<Int>) xs0_<[A]>)
+49. ((++) xs0_<[A]>) (((++) xs1_<[A]>) xs2_<[A]>) == ((++) (((++) xs0_<[A]>) xs1_<[A]>)) xs2_<[A]>
+50. [] == (drop (succ (length xs0_<[A]>))) xs0_<[A]>
+51. (drop x0_<Int>) ((drop x0_<Int>) xs0_<[A]>) == (drop (((+) x0_<Int>) x0_<Int>)) xs0_<[A]>
+52. xs0_<[A]> == (take (succ (length xs0_<[A]>))) xs0_<[A]>
+53. (zip xs0_<[A]>) (reverse xs0_<[A]>) == (zip xs0_<[A]>) (reverse (((++) xs1_<[A]>) xs0_<[A]>))
+54. (zip xs0_<[A]>) (reverse xs0_<[A]>) == (zip (((++) xs0_<[A]>) xs1_<[A]>)) (reverse xs0_<[A]>)
+55. (drop x0_<Int>) (((:) x0_<A>) []) == reverse ((drop x0_<Int>) (((:) x0_<A>) []))
+56. (take x0_<Int>) (((:) x0_<A>) []) == reverse ((take x0_<Int>) (((:) x0_<A>) []))
+57. [] == (drop x0_<Int>) (reverse ((take x0_<Int>) xs0_<[A]>))
+58. reverse ((take x0_<Int>) xs0_<[A]>) == (take x0_<Int>) (reverse ((take x0_<Int>) xs0_<[A]>))
+59. (take x0_<Int>) xs0_<[A]> == (take x0_<Int>) ((take (succ x0_<Int>)) xs0_<[A]>)
+60. (map f0_<A -> A>) (((:) x0_<A>) xs0_<[A]>) == ((:) (f0_<A -> A> x0_<A>)) ((map f0_<A -> A>) xs0_<[A]>)
+61. xs1_<[A]> == (drop (length xs0_<[A]>)) (((++) xs0_<[A]>) xs1_<[A]>)
+62. xs0_<[A]> == (take (length xs0_<[A]>)) (((++) xs0_<[A]>) xs1_<[A]>)
+63. (drop x0_<Int>) xs0_<[A]> == (take (length xs0_<[A]>)) ((drop x0_<Int>) xs0_<[A]>)
+64. (take (succ 0)) xs0_<[A]> == (take (succ 0)) (((++) xs0_<[A]>) xs0_<[A]>)
+65. (drop (succ 0)) (((++) xs0_<[A]>) xs0_<[A]>) == ((++) ((drop (succ 0)) xs0_<[A]>)) xs0_<[A]>
+66. reverse ((take x0_<Int>) (reverse xs0_<[A]>)) == (drop (length ((drop x0_<Int>) xs0_<[A]>))) xs0_<[A]>
+67. (drop x0_<Int>) xs0_<[A]> == (drop (length ((take x0_<Int>) xs0_<[A]>))) xs0_<[A]>
+68. (drop x0_<Int>) ((drop (succ x0_<Int>)) xs0_<[A]>) == (drop (succ (((+) x0_<Int>) x0_<Int>))) xs0_<[A]>
+69. (take x0_<Int>) ((take (length xs0_<[A]>)) xs1_<[A]>) == (take (length ((take x0_<Int>) xs0_<[A]>))) xs1_<[A]>
+70. length (((++) xs0_<[A]>) ((drop (length xs0_<[A]>)) xs1_<[A]>)) == length (((++) xs1_<[A]>) ((drop (length xs1_<[A]>)) xs0_<[A]>))
+71. length ((drop x0_<Int>) (((++) xs0_<[A]>) xs1_<[A]>)) == length ((drop x0_<Int>) (((++) xs0_<[A]>) (reverse xs1_<[A]>)))
+72. length ((drop x0_<Int>) ((drop x1_<Int>) xs0_<[A]>)) == length ((drop x0_<Int>) ((drop x1_<Int>) (reverse xs0_<[A]>)))
+73. length ((drop x0_<Int>) (((:) x0_<A>) xs0_<[A]>)) == length ((drop x0_<Int>) (((:) (f0_<A -> A> x0_<A>)) xs0_<[A]>))
+74. length ((drop x0_<Int>) (((:) x0_<A>) xs0_<[A]>)) == length ((drop x0_<Int>) (((:) (fst x0_<(A,A)>)) xs0_<[A]>))
+75. length ((drop x0_<Int>) ((take (length xs0_<[A]>)) xs1_<[A]>)) == length ((drop x0_<Int>) ((take (length xs1_<[A]>)) xs0_<[A]>))
+76. length ((take x0_<Int>) ((take x1_<Int>) (concat xs0_<[[A]]>))) == length ((take x0_<Int>) ((take x1_<Int>) (concat xs2_<[[A]]>)))
+77. length ((take x0_<Int>) (((:) x0_<A>) xs0_<[A]>)) == length ((take x0_<Int>) (((:) (fst x0_<(A,A)>)) xs0_<[A]>))
+78. length ((take (succ 0)) (((++) xs1_<[A]>) xs2_<[A]>)) == length ((take (succ 0)) (((++) xs1_<[A]>) xs3_<[A]>))
+79. (zip xs0_<[A]>) (((++) xs1_<[A]>) xs0_<[A]>) == (zip xs0_<[A]>) (((++) xs1_<[A]>) (((++) xs0_<[A]>) xs2_<[A]>))
+80. (zip xs0_<[A]>) ((map f0_<A -> A>) xs0_<[A]>) == (zip xs0_<[A]>) ((map f0_<A -> A>) (((++) xs0_<[A]>) xs1_<[A]>))
+81. (zip xs0_<[A]>) ((take x0_<Int>) xs0_<[A]>) == (zip xs0_<[A]>) ((take x0_<Int>) (((++) xs0_<[A]>) xs1_<[A]>))
+82. (zip xs0_<[A]>) ((map f0_<A -> A>) xs0_<[A]>) == (zip xs0_<[A]>) (((++) ((map f0_<A -> A>) xs0_<[A]>)) xs1_<[A]>)
+83. (zip xs0_<[A]>) ((drop x0_<Int>) xs0_<[A]>) == (zip (((++) xs0_<[A]>) xs1_<[A]>)) ((drop x0_<Int>) xs0_<[A]>)
+84. (zip xs0_<[A]>) ((map f0_<A -> A>) xs0_<[A]>) == (zip (((++) xs0_<[A]>) xs1_<[A]>)) ((map f0_<A -> A>) xs0_<[A]>)
+85. (zip xs0_<[A]>) ((take x0_<Int>) xs0_<[A]>) == (zip (((++) xs0_<[A]>) xs1_<[A]>)) ((take x0_<Int>) xs0_<[A]>)
+86. (zip ((drop x0_<Int>) xs0_<[A]>)) xs0_<[A]> == (zip ((drop x0_<Int>) xs0_<[A]>)) (((++) xs0_<[A]>) xs1_<[A]>)
+87. (zip ((map f0_<A -> A>) xs0_<[A]>)) xs0_<[A]> == (zip ((map f0_<A -> A>) xs0_<[A]>)) (((++) xs0_<[A]>) xs1_<[A]>)
+88. (zip (reverse xs0_<[A]>)) (reverse ((drop x0_<Int>) xs0_<[A]>)) == (zip (reverse ((drop x0_<Int>) xs0_<[A]>))) (reverse xs0_<[A]>)
+89. (zip ((map f0_<A -> A>) xs0_<[A]>)) xs0_<[A]> == (zip ((map f0_<A -> A>) (((++) xs0_<[A]>) xs1_<[A]>))) xs0_<[A]>
+90. (zip ((map f0_<A -> A>) xs0_<[A]>)) xs0_<[A]> == (zip (((++) ((map f0_<A -> A>) xs0_<[A]>)) xs1_<[A]>)) xs0_<[A]>
+91. (drop x0_<Int>) (reverse ((drop x1_<Int>) (reverse xs0_<[A]>))) == reverse ((drop x1_<Int>) (reverse ((drop x0_<Int>) xs0_<[A]>)))
+92. (drop x1_<Int>) ((drop x1_<Int>) ((take x0_<Int>) xs0_<[A]>)) == (drop x1_<Int>) ((take x0_<Int>) ((drop x1_<Int>) xs0_<[A]>))
+93. (drop x0_<Int>) ((drop x0_<Int>) (((++) xs0_<[A]>) xs0_<[A]>)) == (drop x0_<Int>) (((++) ((drop x0_<Int>) xs0_<[A]>)) xs0_<[A]>)
+94. (take x0_<Int>) ((drop x0_<Int>) xs0_<[A]>) == (drop x0_<Int>) ((take (((+) x0_<Int>) x0_<Int>)) xs0_<[A]>)
