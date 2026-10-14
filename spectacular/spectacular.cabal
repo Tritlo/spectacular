@@ -34,7 +34,8 @@ library
     Spectacular,
     Spectacular.Types,
     Spectacular.Utils,
-    Spectacular.Testing
+    Spectacular.Testing,
+    Spectacular.DecisionTree
 
 
 executable spectacular

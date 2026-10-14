@@ -58,11 +58,6 @@ mapp n1 n2 = Node [
     )]
 
         
-chunks :: Int -> [a] -> [[a]]
-chunks _ [] = []
-chunks n xs = f:chunks n nxt
-  where (f,nxt) = splitAt n xs
-
 allConstructors :: Comps -> [(Text, Int)]
 allConstructors comps = nubOrd (concatMap (getConstructors . snd) comps)
  where

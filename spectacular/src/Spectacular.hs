@@ -16,6 +16,7 @@ import qualified Data.Bifunctor as Bi
 import Spectacular.Types
 import Spectacular.Utils
 import Spectacular.Testing
+import qualified Spectacular.DecisionTree as DT
 import Data.Proxy (Proxy(..))
 
 
@@ -34,7 +35,6 @@ import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Char (isAlphaNum)
 
 import qualified Control.Concurrent.Async as CCA
-import qualified Control.Concurrent as CC
 
 import qualified Data.IntSet as IntSet
 import qualified Data.IntMap.Strict as IM
@@ -48,7 +48,9 @@ data StEcta = StEcta { any_arg       :: Node Symbol,
                       arb_insts     :: Map TypeSkeleton (T.Text, Func),
                       sig_ty_cons   :: [TypeSkeleton],
                       compl_sig     :: Sig,
-                      given_sig     :: Sig
+                      given_sig     :: Sig,
+                      -- | The test cases that all terms of the phase share.
+                      test_cases    :: [VarVals]
                       } deriving (Show)
 
 
@@ -219,14 +221,14 @@ isGivenVar sig (Symbol x) = case sig Map.!? x of
     _ -> False
 
 
-type TermSet = HS.HashSet Term
 
 -- | The state of the search. The phases and the sizes share it.
 data Search = Search {
     -- | The terms that the search does not test again.
     seen :: !(HS.HashSet Term),
     -- | The representatives of each type.
-    unique_terms :: !(Map Term TermSet),
+    -- | The decision tree of the representatives of each type.
+    trees :: !(Map Term DT.DecisionTree),
     -- | The laws, as pairs of templates in both directions.
     rewrite_rules :: ![(Term, Term)],
     -- | The number of terms that the search examined.
@@ -312,6 +314,7 @@ mkStecta extraReps sig givenTrans skelTrans =
                   given_sig = givenSig,
                   sig_ty_cons = Map.keys eq_insts,
                   eq_insts = eq_insts,
+                  test_cases = testCases 100 compl_sig,
                   arb_insts = arbs }
   where skels =  Map.assocs $ skelTrans . sfTypeRep <$> sig
         (givenSig, eq_insts, arbs) = sigGivens givenTrans sig extraReps
@@ -344,7 +347,7 @@ phases =
 runPhases :: Settings -> Int -> Int -> (TypeSkeleton -> Maybe GeneratedInstance) -> Sig -> IO [String]
 runPhases env size lastPhase extraReps sig =
     go (zip [1..] phases) Search { seen = HS.empty,
-                                   unique_terms = Map.empty,
+                                   trees = Map.empty,
                                    rewrite_rules = [],
                                    so_far = 0,
                                    law_count = 0 }
@@ -354,7 +357,7 @@ runPhases env size lastPhase extraReps sig =
           when (pn > 1) $ putStrLn starting
           (laws, s') <- runPhase env size (mkStecta extraReps sig givenTrans skelTrans) s
           putStrLn $ finished ++ show (so_far s') ++ " terms examined."
-          putStrLn $ show (sum $ map HS.size $ Map.elems (unique_terms s')) ++ " unique terms discovered."
+          putStrLn $ show (sum $ map DT.size $ Map.elems (trees s')) ++ " unique terms discovered."
           (laws ++) <$> go rest s'
     go _ _ = return []
 
@@ -407,8 +410,8 @@ consider Settings{..} StEcta{..} lvl full_term s@Search{..}
      -- A known law rewrites the term to a smaller term, so the
      -- term is redundant.
      | reducible (isGivenVar compl_sig) rewrite_rules np_term = return (Nothing, s)
-     | not (current_ty `Map.member` unique_terms) =
-        return (Nothing, s { unique_terms = Map.insert current_ty (HS.singleton np_term) unique_terms,
+     | not (current_ty `Map.member` trees) =
+        return (Nothing, s { trees = Map.insert current_ty (DT.leaf np_term (values np_term)) trees,
                              seen = HS.insert np_term seen })
      -- if we've seen it before, we can immediately skip.
      | np_term `HS.member` seen = return (Nothing, s { so_far = so_far + 1 })
@@ -417,34 +420,30 @@ consider Settings{..} StEcta{..} lvl full_term s@Search{..}
         allFromSig given_sig np_term =
         return (Nothing, s { so_far = so_far + 1, seen = HS.insert np_term seen })
      | otherwise = do
-        let other_terms = HS.toList $ unique_terms Map.! current_ty
-            terms_to_test = map termToTest other_terms
+        let tree = trees Map.! current_ty
         refreshCount progress ("exploring " ++ show current_ty) ""
-                     ("(" ++ show (length terms_to_test) ++ " to test...)") lvl so_far
-        (holds, untestable) <- testAllPar qcArgs eq_inst compl_sig terms_to_test
+                     ("(" ++ show (DT.size tree) ++ " representatives...)") lvl so_far
+        -- The candidate goes into the decision tree of its type. It is
+        -- evaluated on the test cases of its path only.
+        inserted <- DT.insert (valuesEqual eq_inst) np_term (values np_term) tree
         let sf' = so_far + 1
-        case holds of
-            Nothing -> do
+        case inserted of
+            -- A comparison threw, so the candidate does not become a
+            -- representative.
+            DT.Untested -> return (Nothing, s { so_far = sf' })
+            -- A later phase enumerates the representative again, so it goes
+            -- into seen too.
+            DT.Distinct tree' -> do
                 refreshCount progress ("exploring " ++ show current_ty) "" "" lvl sf'
-                -- A test threw. The candidate or a representative caused
-                -- it, so test the candidate alone. A candidate that we
-                -- cannot test does not become a representative.
-                testable <- if untestable
-                            then (== TestPassed) <$>
-                                   testProperty qcArgs
-                                     (dynProp $ selfEqualityGen eq_inst compl_sig np_term)
-                            else return True
-                -- A later phase enumerates the representative again, so
-                -- it goes into seen too.
-                return (Nothing,
-                        if testable
-                        then s { so_far = sf',
-                                 unique_terms = Map.adjust (HS.insert np_term) current_ty unique_terms,
-                                 seen = HS.insert np_term seen }
-                        else s { so_far = sf' })
-            -- These tests are expensive, so we only do them for laws that hold.
-            Just t -> do
-                let n = law_count + 1
+                return (Nothing, s { so_far = sf',
+                                     trees = Map.insert current_ty tree' trees,
+                                     seen = HS.insert np_term seen })
+            -- The candidate has the values of a representative on all test
+            -- cases: a law. These tests are expensive, so we only do them
+            -- for laws that hold.
+            DT.EqualTo rep -> do
+                let t = termToTest rep
+                    n = law_count + 1
                     (gsig, glaws) =
                       -- We have to be a bit careful about the order
                       -- of the generalized laws, because we test
@@ -471,6 +470,8 @@ consider Settings{..} StEcta{..} lvl full_term s@Search{..}
                                      $ Map.assocs eq_insts
         (eq_txt, eq_inst) = term_eq_insts Map.! current_ty
         termToTest o = Term "(==)" [ Term (Symbol eq_txt) [], o, np_term]
+        -- The values of a term on the test cases, evaluated when needed.
+        values u = map (\tc -> evalTerm compl_sig tc u) test_cases
 
 -- | The rules of a law: its two sides as templates, with the variables of
 -- the law, in both directions.
@@ -483,50 +484,6 @@ lawRules _ _ = []
 -- | Test an equation: the property that its two sides are equal.
 runTest :: QC.Args -> Dynamic -> Sig -> Term -> IO TestResult
 runTest qcArgs eq_inst sig t = testProperty qcArgs $ dynProp $ termToGen eq_inst sig Map.empty t
-
--- | Test the equations in turn. Return the first equation that holds, and
--- whether a test threw.
-testAll :: QC.Args -> Dynamic -> Sig -> [Term] -> IO (Maybe Term, Bool)
-testAll _ _ _ [] = return (Nothing, False)
-testAll qcArgs eq_inst sig (t:ts) =
-    do r <- runTest qcArgs eq_inst sig t
-       case r of
-         TestPassed -> return (Just t, False)
-         TestFailed -> testAll qcArgs eq_inst sig ts
-         Untestable -> (\(m, _) -> (m, True)) <$> testAll qcArgs eq_inst sig ts
-
--- | 'testAll' on one chunk of the equations for each capability.
-testAllPar :: QC.Args -> Dynamic -> Sig -> [Term] -> IO (Maybe Term, Bool)
-testAllPar _ _ _ [] = return (Nothing, False)
-testAllPar qcArgs eq_inst sig terms =
-  do n <- CC.getNumCapabilities
-     if n == 1
-     then testAll qcArgs eq_inst sig terms
-     else if n >= length terms
-          then testAllPar' [] $ map (:[]) terms
-          else testAllPar' [] $ chunks (length terms `div` n) terms
-  where firstSuccessful :: Bool -> [CCA.Async (Maybe Term, Bool)]
-                        -> IO (Maybe Term, Bool)
-        firstSuccessful u [] = return (Nothing, u)
-        firstSuccessful u as = do
-             do (a,r@(m, u')) <- CCA.waitAny as
-                let as' = filter (/= a) as
-                case m of
-                    Just _ -> do mapM_ CCA.cancel as'
-                                 return r
-                    _ -> firstSuccessful (u || u') as'
-        testAllPar' :: [CCA.Async (Maybe Term, Bool)]
-                    -> [[Term]] -> IO (Maybe Term, Bool)
-        -- if there's only one, no need for async
-        testAllPar' [] [] = return (Nothing, False)
-        testAllPar' [] [c] = testAll qcArgs eq_inst sig c
-        -- if we don't have any more chunks to start, we
-        -- just finish it
-        testAllPar' as [] = firstSuccessful False as
-        -- otherwise, we have to start the work (and we check if we've finished anything so far)
-        testAllPar' as (c:cs) =
-            CCA.withAsync (testAll qcArgs eq_inst sig c) $
-                \a -> testAllPar' (a:as) cs
 
 -- | Test the equations at the same time, and give the first one in the
 -- list that holds.

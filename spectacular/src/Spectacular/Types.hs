@@ -16,18 +16,21 @@ import qualified Data.Text as T
 import Data.CFTA.Symbol (Symbol (Symbol))
 import qualified Data.CFTA.Term as CT
 import Data.Proxy
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, fromMaybe)
+import Control.Exception (SomeException, evaluate, try)
 import Debug.Trace (trace)
 
 import Test.QuickCheck (Arbitrary(..), Property(..), Testable(..), Gen(..))
 import qualified Test.QuickCheck as QC
 import Unsafe.Coerce
 import Test.QuickCheck.Property
+import Test.QuickCheck.Gen (unGen)
+import Test.QuickCheck.Random (mkQCGen)
 import qualified Type.Reflection as TR
 
 import qualified Data.Set as Set
 import Data.Set (Set)
-import Data.Hashable (Hashable)
+import Data.Hashable (Hashable, hash)
 import Data.Containers.ListUtils (nubOrd)
 
 -- | A type: a type variable, a function type, or a type constructor with
@@ -140,9 +143,8 @@ sigGivens typeMod sigs extraReps = (
 addExplicitEquality :: Typeable a => (a -> a -> Bool) -> Sig
 addExplicitEquality (fun :: a -> a -> Bool) = Map.singleton key val
   where g_tr = typeRep (Proxy :: Proxy a)
-        wrapped a b = property (fun a b)
         key = "<@Eq_"<>(T.pack $ show g_tr)<>"@>"
-        val = GivenFun (GivenInst g_tr (toDyn wrapped)) $
+        val = GivenFun (GivenInst g_tr (toDyn fun)) $
                         TCons "Eq" [typeRepToTypeSkeleton g_tr]
 
         
@@ -150,10 +152,8 @@ addExplicitEquality (fun :: a -> a -> Bool) = Map.singleton key val
 addEquality :: (Eq a, Typeable a) => Proxy a -> Sig
 addEquality (Proxy :: Proxy a) = Map.singleton key val
   where g_tr = typeRep (Proxy :: Proxy a)
-        wrappedEq :: a -> a -> Property
-        wrappedEq a b = property ((==) a b)
         key = "<@Eq_"<>(T.pack $ show g_tr)<>"@>"
-        val = GivenFun (GivenInst g_tr (toDyn wrappedEq)) $
+        val = GivenFun (GivenInst g_tr (toDyn ((==) :: a -> a -> Bool))) $
                         TCons "Eq" [typeRepToTypeSkeleton g_tr]
 
 addArbitrary :: (Typeable a, Arbitrary a) => Proxy a -> Sig
@@ -168,12 +168,8 @@ genRepFromProxy :: (Show a, Eq a, Typeable a, Arbitrary a) =>
 genRepFromProxy (Proxy :: Proxy a) = Gend {..}
     where g_tr = typeRep (Proxy :: Proxy a)
           g_arb = DynGen (arbitrary :: Gen a)
-          g_eq = Just (toDyn wrappedEq)
+          g_eq = Just (toDyn ((==) :: a -> a -> Bool))
           g_li_i = genRepFromProxy (Proxy :: Proxy [a])
-          -- TODO: do something fancier here.
-          -- we could add a Show here?
-          wrappedEq :: a -> a -> Property
-          wrappedEq a b = property ((==) a b)
 
 genRepFromProxyNoEq :: (Typeable a, Arbitrary a) =>
                         Proxy a -> GeneratedInstance
@@ -444,16 +440,41 @@ termToGen _ sig vv (Term (Symbol sym) _) = do
    Nothing -> error "not found!"
    
 
--- | A generator of the property that a term equals itself. The property
--- evaluates the term, so a test throws when the evaluation throws.
-selfEqualityGen :: Dynamic -> Sig -> Term -> Gen Dynamic
-selfEqualityGen eq_inst sig t = do
-    vv <- getVars sig t
-    v <- termToGen eq_inst sig vv t
-    return $ unsafeApply (unsafeApply eq_inst v) v
-
+-- | The property that a generated equation holds. The equalities of the
+-- types give Bool values.
 dynProp :: Gen Dynamic -> Property
-dynProp gen = QC.forAll gen (flip fromDyn (property False))
+dynProp gen = QC.forAll gen (`fromDyn` False)
+
+-- | The value of a term on a test case.
+evalTerm :: Sig -> VarVals -> Term -> Dynamic
+evalTerm sig tc (Term "app" [_, f, v]) = unsafeApply (evalTerm sig tc f) (evalTerm sig tc v)
+evalTerm sig tc (Term (Symbol sym) _) =
+    case sig Map.!? sym of
+      Just (GivenFun {given_info = GivenVar {}}) ->
+          fromMaybe (error "evalTerm: variable not found") (tc Map.!? sym)
+      Just (GivenFun {given_info = GivenInst _ inst}) -> inst
+      Just f@(SigFunc {}) -> sfFunc f
+      Just f@(GenFunc {}) -> sfFunc f
+      _ -> error ("evalTerm: symbol not found: " ++ T.unpack sym)
+
+-- | The test cases of a signature: a value for each generated variable.
+-- Test case k has the size k, as the k-th test of QuickCheck has. Each
+-- variable takes its value from a seed of its own, so a variable has the
+-- same values in each phase.
+testCases :: Int -> Sig -> [VarVals]
+testCases n sig =
+    [ Map.fromList [ (v, value g k v) | (v, GivenFun {given_info = GivenVar _ _ g}) <- Map.assocs sig ]
+    | k <- [0 .. n - 1] ]
+  where value (DynGen g) k v = toDyn (unGen g (mkQCGen (hash (k, v))) k)
+
+-- | Whether two values are equal, by the equality of their type. Nothing
+-- means that the comparison threw an exception.
+valuesEqual :: Dynamic -> Dynamic -> Dynamic -> IO (Maybe Bool)
+valuesEqual eq a b = do
+    r <- try (evaluate (fromDyn (unsafeApply (unsafeApply eq a) b) False))
+    return $ case r of
+        Left (_ :: SomeException) -> Nothing
+        Right x -> Just x
 
 
 -- TODO: can we kill a branch once a rewriteable term is detected?
