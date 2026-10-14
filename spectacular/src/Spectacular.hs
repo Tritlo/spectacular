@@ -181,8 +181,9 @@ experimentalPhases :: Int -> Int -> (TypeSkeleton -> Maybe GeneratedInstance) ->
 experimentalPhases size phase extraReps sigs =
     do -- SPECTACULAR_PROGRESS=1 shows the progress of the search on stderr.
        progress <- (== Just "1") <$> Env.lookupEnv "SPECTACULAR_PROGRESS"
-       -- SPECTACULAR_TESTS sets the number of test cases (100 by default).
-       numTests <- fromMaybe 100 . (>>= TR.readMaybe) <$> Env.lookupEnv "SPECTACULAR_TESTS"
+       -- SPECTACULAR_TESTS sets the number of test cases (1000 by default,
+       -- as in QuickSpec).
+       numTests <- fromMaybe 1000 . (>>= TR.readMaybe) <$> Env.lookupEnv "SPECTACULAR_TESTS"
        let sig = mconcat sigs
            StEcta { compl_sig = compl_sig,
                     arb_insts = arb_insts,
