@@ -418,9 +418,7 @@ carrierTyCons =
 
 -- Note: should be npTermed
 termToGen :: Dynamic -> Sig -> VarVals -> Term -> Gen Dynamic
-termToGen eq_inst sig init_vv (Term "(==)" [eq_i, a_g, b_g])
-    | a_g == b_g = return (toDyn True) -- short-circuit the trivial case
-    | otherwise =
+termToGen eq_inst sig init_vv (Term "(==)" [eq_i, a_g, b_g]) =
     do vv <- if Map.null init_vv
              then do vva <- getVars sig a_g
                      vvb <- getVars sig b_g
