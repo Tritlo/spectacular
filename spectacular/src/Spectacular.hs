@@ -31,17 +31,13 @@ import qualified Data.Text as T
 import Control.Monad (when)
 import qualified System.Environment as Env
 import qualified Text.Read as TR
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Char (isAlphaNum)
 
-import qualified Control.Concurrent.Async as CCA
-
-import qualified Data.IntSet as IntSet
-import qualified Data.IntMap.Strict as IM
 import qualified Data.HashSet as HS
 import Data.Function (on)
 import System.IO (hFlush, hPutStr, stderr)
-import Data.Containers.ListUtils (nubOrdOn)
+import Data.Containers.ListUtils (nubOrd)
 
 data StEcta = StEcta { any_arg       :: Node Symbol,
                       eq_insts      :: Map TypeSkeleton (T.Text, Dynamic),
@@ -49,88 +45,60 @@ data StEcta = StEcta { any_arg       :: Node Symbol,
                       sig_ty_cons   :: [TypeSkeleton],
                       compl_sig     :: Sig,
                       given_sig     :: Sig,
+                      -- | The complete signature with more variables of each
+                      -- type, for the instances of the schemas.
+                      inst_sig      :: Sig,
+                      -- | The variables of each type, from the variable with
+                      -- the index 0 of the type.
+                      schema_vars   :: Map Symbol [Symbol],
                       -- | The test cases that all terms of the phase share.
                       test_cases    :: [VarVals]
                       } deriving (Show)
 
+-- | The number of variables of each type that fill the holes of a schema.
+-- QuickSpec uses 4 by default (@Use (UpTo 4)@).
+variablesPerType :: Int
+variablesPerType = 4
 
--- If there is a law that involves arbitrary xs and ys, it must in particular
--- also hold whenever xs == ys. So it suffices to explore laws where we have
--- only a single generator in scope and then generalizing them.
-generalizeLaw :: Sig -> Term -> (Sig, [Term])
-generalizeLaw sig t@(Term "(==)" [ty,lhs,rhs]) =
-    let (lhsig, lhss) = generalizedLaw' sig lhs
-        (rhsig, rhss) = generalizedLaw' lhsig rhs
-        varIds = Map.elems . termVarIds rhsig -- we can't simplify more,
-                                               -- since they need to be of
-                                               -- different types.
-    in (rhsig,  -- We want the most general one first with the
-                -- lowest variables. We just keep the first one
-                -- so it's OK if we generate too many.
-                -- TODO: we can probably do better by splitting the
-                -- varIds here into the lhs and rhs, but we leave it like
-                -- this for now. We count the number of variables of each
-                -- type and sort by that. Note that from the way we generate
-                -- it, the terms are already sorted by varIds.
-                map fst $ concat $ reverse $ -- then we reverse and concat,
-                                             -- so that the terms with the
-                                             -- biggest number of variables
-                                             -- are first.
-                groupBy ((==) `on` (map fst . snd)) $ -- we group by number of
-                                                      -- variables of each type
-                sortOn (map fst . snd) $ -- we sort on the number of variables
-                                         -- of each type
-                nubOrdOn (map snd . snd) $ -- we remove those that are equal
-                                           -- modulo renaming
-                map (fmap (map countAndRename) ) $ -- we count and rename
-                filter ( not . all (all (== 0)) . snd) $ -- the original term
-                filter (any prune . snd) $ -- we remove things that are
-                                           -- obviously equal
-                map (\t -> (t, varIds t)) $
-                [Term "(==)" [ty, lhs',rhs'] | lhs' <- lhss, rhs' <- rhss])
-  where var_count = Map.unionWith max (countVars sig lhs) (countVars sig rhs)
-        -- If the list doesn't start with 0 and has a variable outside
-        -- the list, we can disregard it immediately
-        prune :: [Int] -> Bool
-        prune (0:r) | lr <- length r, lr == 0 || any (lr <=) r  = False
-        prune _ = True
-        countAndRename :: [Int] -> (Int, [Int])
-        countAndRename var_ids = (IntSet.size u_set, map (uv_mp IM.!) var_ids)
-          where u_set = IntSet.fromList var_ids
-                u_vars = IntSet.toAscList u_set
-                uv_mp = IM.fromList $ zip u_vars [0..]
-        generalizedLaw' sig c@(Term (Symbol tsy) [ty]) =
-           case sig Map.!? tsy of
-              Just v@(GivenFun (GivenVar {}) grep) ->
-                  let gens = take (var_count Map.! grep) $ moreGenerators v
-                      f (GivenFun v@(GivenVar {}) _) = Just v
-                      f _ = Nothing
-                      gnames = mapMaybe (fmap gvToName . f) gens
-                      gsig = Map.fromList $ zip gnames gens
-                  in (sig <> gsig, [Term (Symbol n) [ty] | n <- gnames] )
-              _ -> (sig, [c])
-        generalizedLaw' sig (Term "app" [ty,f,v]) =
-            let (fsig, fs) = generalizedLaw' sig f
-                (vsig, vs) = generalizedLaw' fsig v
-            in (vsig, [Term "app" [ty, f',v'] | f' <- fs, v' <- vs])
+-- | The largest schema that the search instantiates when the schema is a new
+-- representative. Without it, the search does not find laws such as
+-- commutativity, whose two sides have the same schema. QuickSpec uses 5
+-- (@cfg_max_commutative_size@). The size of a term is the number of its
+-- leaves, as in 'searchSpace'.
+maxCommutativeSize :: Int
+maxCommutativeSize = 5
 
-termVarIds :: Sig -> Term -> Map TypeSkeleton [Int]
-termVarIds sig (Term (Symbol tsy) [_]) =
-    case sig Map.!? tsy of
-        Just v@(GivenFun (GivenVar _ i _) grep) -> Map.singleton grep [i]
-        _ -> Map.empty
-termVarIds sig (Term symbol args) =
-    Map.unionsWith (++) $ map (termVarIds sig) args
+-- | Put the variables into the holes of a schema, from left to right.
+fillHoles :: (Symbol -> Bool) -> [Symbol] -> Term -> Term
+fillHoles isVar vars0 t0 = fst (go vars0 t0)
+  where
+    go vars (Term "app" [ty, f, v]) =
+        let (f', vars') = go vars f
+            (v', vars'') = go vars' v
+        in (Term "app" [ty, f', v'], vars'')
+    go (x : vars) (Term s tys) | isVar s = (Term x tys, vars)
+    go vars t = (t, vars)
 
+-- | The holes of a schema, from left to right. A hole is a variable.
+holes :: (Symbol -> Bool) -> Term -> [Symbol]
+holes isVar (Term "app" [_, f, v]) = holes isVar f ++ holes isVar v
+holes isVar (Term s _) = [s | isVar s]
 
-countVars :: Sig -> Term -> Map TypeSkeleton Int
-countVars sig (Term (Symbol tsy) [_]) =
-    case sig Map.!? tsy of
-        Just v@(GivenFun (GivenVar _ _ _) grep) -> Map.singleton grep 1
-        _ -> Map.empty
-countVars sig (Term symbol args) =
-    Map.unionsWith (+) $ map (countVars sig) args
+-- | The most general instance of a schema: each hole gets a different
+-- variable of its type.
+mostGeneral :: (Symbol -> Bool) -> Map Symbol [Symbol] -> Term -> Term
+mostGeneral isVar vars t = fillHoles isVar (snd (mapAccumL next Map.empty (holes isVar t))) t
+  where next counts x = let n = Map.findWithDefault 0 x counts
+                        in (Map.insert x (n + 1) counts, (vars Map.! x) !! n)
 
+-- | The instances of a schema: each hole gets one of the first
+-- 'variablesPerType' variables of its type. The instances with more
+-- different variables come first, as in QuickSpec.
+schemaInstances :: (Symbol -> Bool) -> Map Symbol [Symbol] -> Term -> [Term]
+schemaInstances isVar vars t =
+    [ fillHoles isVar (map snd ivs) t
+    | ivs <- sortOn generality (mapM (zip [0 :: Int ..] . take variablesPerType . (vars Map.!)) (holes isVar t)) ]
+  where generality ivs = (negate (length (nubOrd (map snd ivs))), map fst ivs)
 
 
 typeSkeletonToTerm :: TypeSkeleton -> Term
@@ -247,9 +215,12 @@ isGivenVar sig (Symbol x) = case sig Map.!? x of
 data Search = Search {
     -- | The terms that the search does not test again.
     seen :: !(HS.HashSet Term),
-    -- | The representatives of each type.
-    -- | The decision tree of the representatives of each type.
+    -- | The decision tree of the representative schemas of each type.
     trees :: !(Map Term DT.DecisionTree),
+    -- | The decision tree of the instances of each representative schema.
+    instance_trees :: !(Map Term DT.DecisionTree),
+    -- | The representative schemas whose instances are in their trees.
+    instantiated :: !(HS.HashSet Term),
     -- | The rules of the laws, by the heads of their left sides.
     rewrite_rules :: !Rules,
     -- | The number of terms that the search examined.
@@ -300,7 +271,7 @@ experimentalPhases size phase extraReps sigs =
        let sig = mconcat sigs
            StEcta { compl_sig = compl_sig,
                     arb_insts = arb_insts,
-                    sig_ty_cons = sig_ty_cons} = mkStecta numTests extraReps sig id id
+                    sig_ty_cons = sig_ty_cons} = mkStecta size numTests extraReps sig id id
        putStrLn $ "In Scope (" ++ show (Map.size compl_sig) ++ " functions/constants):"
        putStrLn "---------------------------------"
        mapM_ (putStrLn . T.unpack) $ Map.keys compl_sig
@@ -332,17 +303,24 @@ experimentalPhases size phase extraReps sigs =
 -- with the generated variables and the equalities, the node of the atoms,
 -- and the types to test. The first function changes the types of the
 -- generated variables, and the second the types of the functions.
-mkStecta :: Int -> (TypeSkeleton -> Maybe GeneratedInstance) -> Sig
+mkStecta :: Int -> Int -> (TypeSkeleton -> Maybe GeneratedInstance) -> Sig
          -> (TypeSkeleton -> TypeSkeleton) -> (TypeSkeleton -> TypeSkeleton) -> StEcta
-mkStecta numTests extraReps sig givenTrans skelTrans =
+mkStecta size numTests extraReps sig givenTrans skelTrans =
          StEcta { any_arg = ag,
                   compl_sig = compl_sig,
                   given_sig = givenSig,
+                  inst_sig = inst_sig,
+                  schema_vars = Map.fromList [ (Symbol x, map (Symbol . fst) vs) | (x, vs) <- moreVars ],
                   sig_ty_cons = Map.keys eq_insts,
                   eq_insts = eq_insts,
-                  test_cases = testCases numTests compl_sig,
+                  test_cases = testCases numTests inst_sig,
                   arb_insts = arbs }
   where skels =  Map.assocs $ skelTrans . sfTypeRep <$> sig
+        -- The most general instance of a schema of the given size has at
+        -- most size variables of a type.
+        moreVars = [ (x, [ (gvToName gv, g) | g@(GivenFun gv _) <- take (max variablesPerType size) (moreGenerators f) ])
+                   | (x, f@(GivenFun {given_info = GivenVar {}})) <- Map.assocs compl_sig ]
+        inst_sig = Map.fromList (concatMap snd moreVars) <> compl_sig
         (givenSig, eq_insts, arbs) = sigGivens givenTrans sig extraReps
         givens = Map.assocs $ givenTrans . sfTypeRep <$> givenSig
         compl_sig = sig <> givenSig
@@ -374,6 +352,8 @@ runPhases :: Settings -> Int -> Int -> (TypeSkeleton -> Maybe GeneratedInstance)
 runPhases env size lastPhase extraReps sig =
     go (zip [1..] phases) Search { seen = HS.empty,
                                    trees = Map.empty,
+                                   instance_trees = Map.empty,
+                                   instantiated = HS.empty,
                                    rewrite_rules = Map.empty,
                                    so_far = 0,
                                    law_count = 0 }
@@ -381,7 +361,7 @@ runPhases env size lastPhase extraReps sig =
     go ((pn, (finished, starting, givenTrans, skelTrans)) : rest) s
       | pn <= lastPhase = do
           when (pn > 1) $ putStrLn starting
-          (laws, s') <- runPhase env size (mkStecta (numTests env) extraReps sig givenTrans skelTrans) s
+          (laws, s') <- runPhase env size (mkStecta size (numTests env) extraReps sig givenTrans skelTrans) s
           putStrLn $ finished ++ show (so_far s') ++ " terms examined."
           putStrLn $ show (sum $ map DT.size $ Map.elems (trees s')) ++ " unique terms discovered."
           (laws ++) <$> go rest s'
@@ -414,9 +394,9 @@ runPhase env@Settings{..} size stecta@StEcta{..} = go [ (lvl, tc) | lvl <- [1 ..
         return (laws ++ more, s'')
     considerAll _ [] s = return ([], s)
     considerAll lvl (t : ts) s = do
-        (law, s') <- consider env stecta lvl t s
+        (laws, s') <- consider env stecta lvl t s
         (more, s'') <- considerAll lvl ts s'
-        return (maybe more (: more) law, s'')
+        return (laws ++ more, s'')
 
 -- 2. The candidate terms.
 
@@ -426,78 +406,127 @@ searchSpace StEcta{..} lvl tc =
     let !ecta = filterType (union $ tk any_arg lvl) $ typeToFta tc
     in fixWithin 100 (withoutRedundantEdges . reducePartially) ecta
 
--- 3. The test of a candidate, and the law that it gives.
+-- 3. The test of a candidate, and the laws that it gives.
 
--- | Consider one candidate term. Prune it, or keep it as the first
--- representative of its type, or test it against the representatives of
--- its type. Give the law that the test finds, if any.
-consider :: Settings -> StEcta -> Int -> Term -> Search -> IO (Maybe String, Search)
-consider Settings{..} StEcta{..} lvl full_term s@Search{..}
-     -- A known law rewrites the term to a smaller term, so the
-     -- term is redundant.
-     | reducible (isGivenVar compl_sig) rewrite_rules np_term = return (Nothing, s)
-     | not (current_ty `Map.member` trees) =
-        return (Nothing, s { trees = Map.insert current_ty (DT.leaf np_term (values np_term)) trees,
-                             seen = HS.insert np_term seen })
+-- | The result of the exploration of a term in the tree of the instances of
+-- a schema, as in QuickSpec.
+data Explored
+  = -- | The term is a new representative.
+    Singleton
+  | -- | The term equals a representative: the law.
+    Discovered String
+  | -- | A known law rewrites the term, the term is a representative already,
+    -- or a comparison threw.
+    Knew
+
+-- | Consider one candidate term. The term is a schema: it has one variable
+-- of each type, which stands for the holes. The rule is that of QuickSpec 2
+-- (section 3.2.3 of the paper, and Explore/Schemas.hs). Prune the schema if a
+-- known law rewrites its most general instance. Otherwise, test the schema
+-- against the representative schemas of its type. If the schema equals a
+-- representative, test its most general instance against the instances of
+-- the representative. If that instance is new, test all instances of the
+-- two schemas. A new representative schema is also instantiated if it is
+-- small. Give the laws that the tests find.
+consider :: Settings -> StEcta -> Int -> Term -> Search -> IO ([String], Search)
+consider Settings{..} StEcta{..} lvl full_term s0
+     -- A known law rewrites the most general instance to a smaller term. The
+     -- law rewrites each instance in the same way, so the schema is
+     -- redundant.
+     | reducible isVar (rewrite_rules s0) most_general = return ([], s0)
      -- if we've seen it before, we can immediately skip.
-     | np_term `HS.member` seen = return (Nothing, s { so_far = so_far + 1 })
+     | np_term `HS.member` seen s0 = return ([], s0 { so_far = so_far s0 + 1 })
      -- We don't want terms that are all variables.
      | termSize np_term > 1,
         allFromSig given_sig np_term =
-        return (Nothing, s { so_far = so_far + 1, seen = HS.insert np_term seen })
+        return ([], s0 { so_far = so_far s0 + 1, seen = HS.insert np_term (seen s0) })
      | otherwise = do
-        let tree = trees Map.! current_ty
+        let tree = Map.findWithDefault DT.empty current_ty (trees s0)
         refreshCount progress ("exploring " ++ show current_ty) ""
-                     ("(" ++ show (DT.size tree) ++ " representatives...)") lvl so_far
-        -- The candidate goes into the decision tree of its type. It is
+                     ("(" ++ show (DT.size tree) ++ " representatives...)") lvl (so_far s0)
+        -- The schema goes into the decision tree of its type. It is
         -- evaluated on the test cases of its path only.
         inserted <- DT.insert (valuesEqual eq_inst) np_term (values np_term) tree
-        let sf' = so_far + 1
-        case inserted of
-            -- A comparison threw, so the candidate does not become a
+        let s = s0 { so_far = so_far s0 + 1 }
+            -- A later phase enumerates the schema again, so it goes into
+            -- seen.
+            s' = s { seen = HS.insert np_term (seen s0) }
+        (laws, s'') <- case inserted of
+            -- A comparison threw, so the schema does not become a
             -- representative.
-            DT.Untested -> return (Nothing, s { so_far = sf' })
-            -- A later phase enumerates the representative again, so it goes
-            -- into seen too.
-            DT.Distinct tree' -> do
-                refreshCount progress ("exploring " ++ show current_ty) "" "" lvl sf'
-                return (Nothing, s { so_far = sf',
-                                     trees = Map.insert current_ty tree' trees,
-                                     seen = HS.insert np_term seen })
-            -- The candidate has the values of a representative on all test
-            -- cases: a law. These tests are expensive, so we only do them
-            -- for laws that hold.
-            DT.EqualTo rep -> do
-                let t = termToTest rep
-                    n = law_count + 1
-                    (gsig, glaws) =
-                      -- We have to be a bit careful about the order
-                      -- of the generalized laws, because we test
-                      -- them in order.
-                      generalizeLaw compl_sig $ npTerm' t
-                -- If we don't find a more general law, we use the one
-                -- we found.
-                refreshCount progress "generalizing" "" ("(" ++ show (length glaws) ++ " possibilities...)") lvl sf'
-                most_general <- fromMaybe t <$> testAllInOrderAsync qcArgs eq_inst gsig glaws
-                let law_str = (show n <> ". ") <> ppNpTerm most_general
-                when progress $ hPutStr stderr "\r\ESC[K"
-                putStrLn law_str
-                refreshCount progress ("exploring " ++ show current_ty) "" "" lvl sf'
-                return (Just law_str,
-                        s { seen = HS.insert np_term seen,
-                            so_far = sf',
-                            law_count = n,
-                            rewrite_rules = addRules (lawRules gsig most_general) rewrite_rules })
+            DT.Untested -> return ([], s)
+            DT.Distinct tree'
+                | lvl <= maxCommutativeSize -> instantiateRep np_term with_tree
+                | otherwise ->
+                    return ([], with_tree { instance_trees =
+                                              Map.insert np_term (DT.leaf most_general (values most_general))
+                                                         (instance_trees s0) })
+              where with_tree = s' { trees = Map.insert current_ty tree' (trees s0) }
+            DT.EqualTo rep -> exploreIn rep s'
+        refreshCount progress ("exploring " ++ show current_ty) "" "" lvl (so_far s)
+        return (laws, s'')
   where -- wrt variable renaming
         np_term = npTerm' full_term
         Term "filter" [current_ty,_] = full_term
+        isVar = isGivenVar inst_sig
+        most_general = mostGeneral isVar schema_vars np_term
 
         term_eq_insts = Map.fromList $ map (Bi.first typeSkeletonToTerm)
                                      $ Map.assocs eq_insts
         (eq_txt, eq_inst) = term_eq_insts Map.! current_ty
-        termToTest o = Term "(==)" [ Term (Symbol eq_txt) [], o, np_term]
         -- The values of a term on the test cases, evaluated when needed.
-        values u = map (\tc -> evalTerm compl_sig tc u) test_cases
+        values u = map (\tc -> evalTerm inst_sig tc u) test_cases
+
+        -- The schema equals the representative schema rep. Test the most
+        -- general instance of the schema against the instances of rep.
+        exploreIn rep s = do
+            (explored, s') <- exploreInstance rep most_general s
+            case explored of
+                Discovered law -> return ([law], s')
+                Knew -> return ([], s')
+                Singleton -> do
+                    (rep_laws, s'') <- if rep `HS.member` instantiated s'
+                                       then return ([], s')
+                                       else instantiateRep rep s'
+                    (laws, s''') <- instantiate rep np_term s''
+                    return (rep_laws ++ laws, s''')
+
+        instantiateRep rep s = instantiate rep rep s { instantiated = HS.insert rep (instantiated s) }
+
+        -- Test the instances of a schema against the instances of the
+        -- representative schema rep, the most general instances first.
+        instantiate rep schema = go (schemaInstances isVar schema_vars schema)
+          where go [] s = return ([], s)
+                go (i : is) s = do
+                    (explored, s') <- exploreInstance rep i s
+                    (laws, s'') <- go is s'
+                    return (case explored of
+                                Discovered law -> law : laws
+                                _ -> laws,
+                            s'')
+
+        -- Test an instance against the instances of the representative
+        -- schema rep. Print the law that the test finds, and add its rules.
+        exploreInstance rep i s
+            | reducible isVar (rewrite_rules s) i = return (Knew, s)
+            | otherwise = do
+                let table = Map.findWithDefault DT.empty rep (instance_trees s)
+                inserted <- DT.insert (valuesEqual eq_inst) i (values i) table
+                case inserted of
+                    DT.Untested -> return (Knew, s)
+                    DT.Distinct table' ->
+                        return (Singleton, s { instance_trees = Map.insert rep table' (instance_trees s) })
+                    DT.EqualTo w
+                        | w == i -> return (Knew, s)
+                        | otherwise -> do
+                            let n = law_count s + 1
+                                law = Term "(==)" [Term (Symbol eq_txt) [], w, i]
+                                law_str = show n <> ". " <> ppNpTerm law
+                            when progress $ hPutStr stderr "\r\ESC[K"
+                            putStrLn law_str
+                            return (Discovered law_str,
+                                    s { law_count = n,
+                                        rewrite_rules = addRules (lawRules inst_sig law) (rewrite_rules s) })
 
 -- | The rules of a law: its two sides as templates, with the variables of
 -- the law, in both directions. A direction is not a rule if its right side
@@ -515,25 +544,6 @@ lawRules gsig (Term "(==)" [_, l, r]) = filter canReduce [(l', r'), (r', l')]
         vars (Term h@(Symbol x) _) = [h | "<v>" `T.isPrefixOf` x]
         count x t = length (filter (== x) (vars t))
 lawRules _ _ = []
-
--- | Test an equation: the property that its two sides are equal.
-runTest :: QC.Args -> Dynamic -> Sig -> Term -> IO TestResult
-runTest qcArgs eq_inst sig t = testProperty qcArgs $ dynProp $ termToGen eq_inst sig Map.empty t
-
--- | Test the equations at the same time, and give the first one in the
--- list that holds.
-testAllInOrderAsync :: QC.Args -> Dynamic -> Sig -> [Term] -> IO (Maybe Term)
-testAllInOrderAsync _ _ _ [] = return Nothing
-testAllInOrderAsync qcArgs eq_inst sig (a:as) =
-     CCA.withAsync (runTest qcArgs eq_inst sig a) $ \aref ->
-         CCA.withAsync (testAllInOrderAsync qcArgs eq_inst sig as) $ \asref -> do
-             ares <- CCA.wait aref
-             -- if the first one is succesful, we don't care
-             -- about the rest!
-             if ares == TestPassed
-             then do CCA.cancel asref
-                     return (Just a)
-             else CCA.wait asref
 
 npTerm' :: Term -> Term
 npTerm' (Term "filter" [_,term]) = npTerm' term

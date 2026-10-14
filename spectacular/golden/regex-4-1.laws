@@ -5,18 +5,17 @@
 5. x0_<Regex Sym> == ((;) x0_<Regex Sym>) e
 6. 0 == ((;) 0) x0_<Regex Sym>
 7. x0_<Regex Sym> == ((;) e) x0_<Regex Sym>
-8. x1_<Regex Sym> == ((|) x1_<Regex Sym>) x1_<Regex Sym>
-9. x0_<Regex Sym> == ((|) x0_<Regex Sym>) 0
-10. x0_<Regex Sym> == ((|) 0) x0_<Regex Sym>
-11. ((|) x0_<Regex Sym>) any == ((|) any) x0_<Regex Sym>
-12. ((|) x0_<Regex Sym>) e == ((|) e) x0_<Regex Sym>
+8. ((|) x0_<Regex Sym>) x1_<Regex Sym> == ((|) x1_<Regex Sym>) x0_<Regex Sym>
+9. x0_<Regex Sym> == ((|) x0_<Regex Sym>) x0_<Regex Sym>
+10. x0_<Regex Sym> == ((|) x0_<Regex Sym>) 0
+11. any == ((|) 0) any
+12. e == ((|) 0) e
 13. (*) any == (*) (((|) x0_<Regex Sym>) any)
 14. (*) x0_<Regex Sym> == (*) (((|) x0_<Regex Sym>) e)
-15. (*) x1_<Regex Sym> == ((|) x1_<Regex Sym>) ((*) x1_<Regex Sym>)
+15. (*) x0_<Regex Sym> == ((|) x0_<Regex Sym>) ((*) x0_<Regex Sym>)
 16. (*) any == ((|) x0_<Regex Sym>) ((*) any)
-17. any == ((|) any) (char x0_<Sym>)
-18. (*) x0_<Regex Sym> == ((|) e) ((*) x0_<Regex Sym>)
-19. ((;) x1_<Regex Sym>) ((*) x1_<Regex Sym>) == ((;) ((*) x1_<Regex Sym>)) x1_<Regex Sym>
-20. (*) x1_<Regex Sym> == ((|) ((*) x1_<Regex Sym>)) x1_<Regex Sym>
-21. (*) any == ((|) ((*) any)) x0_<Regex Sym>
-22. ((|) x0_<Regex Sym>) (char x0_<Sym>) == ((|) (char x0_<Sym>)) x0_<Regex Sym>
+17. (*) x0_<Regex Sym> == ((|) 0) ((*) x0_<Regex Sym>)
+18. char x0_<Sym> == ((|) 0) (char x0_<Sym>)
+19. any == ((|) any) (char x0_<Sym>)
+20. (*) x0_<Regex Sym> == ((|) e) ((*) x0_<Regex Sym>)
+21. ((;) x0_<Regex Sym>) ((*) x0_<Regex Sym>) == ((;) ((*) x0_<Regex Sym>)) x0_<Regex Sym>

@@ -6,6 +6,7 @@
 module Spectacular.DecisionTree (
     DecisionTree,
     Inserted (..),
+    empty,
     leaf,
     insert,
     size,
@@ -31,6 +32,10 @@ data Inserted
     EqualTo Term
   | -- | A comparison threw, so the term cannot be tested.
     Untested
+
+-- | The tree with no representatives.
+empty :: DecisionTree
+empty = Branch []
 
 -- | The tree with one representative and its values on all test cases.
 leaf :: Term -> [Dynamic] -> DecisionTree
