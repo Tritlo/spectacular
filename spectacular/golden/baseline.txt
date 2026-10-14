@@ -1,17 +1,17 @@
 Baseline of the laws that microspectacular finds.
 
-Commit 94e4d31, GHC 9.14.1, microcfta 8e393e62, recorded 2026-10-14 14:10
-on the WSL2 development machine. Each run is phase 1 with the fixed
-QuickCheck seed. Each program ran twice, and the two law lists were
-identical. The law files hold the numbered law lines of the output.
+GHC 9.14.1, microcfta 8e393e62, on the WSL2 development machine, for
+the code of the commit that holds this file. Each run is phase 1 with
+the fixed QuickCheck seed, so the laws are the same in each run. The
+law files hold the numbered law lines of the output. The last two
+runs are the timing cells: compare their allocation and their time
+before and after a change.
 
-run              program            args  laws     elapsed s  bytes allocated  max residency
-gcd-3-1          example-gcd                22   0.009 0.007       22,302,160        253,504
-list-monad-5-1   bench-list-monad   5 1      4   0.017 0.021       67,412,240      3,657,776
-lists-5-1        bench-lists        5 1     17   0.052 0.053      243,179,888      3,758,288
-octonions-4-1    bench-octonions    4 1      7   0.021 0.022       37,197,936        251,032
-regex-4-1        bench-regex        4 1     31   0.278 0.276    2,386,165,120        368,056
-
-The elapsed times are of the two runs. The allocation and the residency
-are of the first run. The second run gave the same numbers, except that
-regex-4-1 allocated 32 bytes less.
+run              program            args  laws  elapsed s    bytes allocated  max residency
+gcd-3-1          example-gcd                22      0.008         22,302,160        253,504
+list-monad-5-1   bench-list-monad   5 1      4      0.017         67,412,240      3,657,776
+lists-5-1        bench-lists        5 1     17      0.047        247,621,000      3,758,080
+octonions-4-1    bench-octonions    4 1      7      0.020         37,197,936        251,032
+regex-4-1        bench-regex        4 1     31      0.264      2,386,165,688        368,304
+lists-9-1        bench-lists        9 1     55     11.957     61,977,967,408    136,258,048
+huge-lists-7-1   bench-huge-lists   7 1    180     19.265    130,021,429,744     27,445,072
