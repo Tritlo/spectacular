@@ -368,10 +368,12 @@ monomorphiseType (TCons s r) = TCons s $ map monomorphiseType r
 monomorphiseType (TFun arg ret) = TFun (monomorphiseType arg) (monomorphiseType ret)
 monomorphiseType tsk = tsk
 
+-- | The template of a term: each variable becomes a template variable of
+-- the same type. Equal variables give equal template variables.
 toTemplate :: Sig -> Term -> Term
 toTemplate sig (Term (Symbol s) ty) |
     Just (GivenFun {given_info=(GivenVar _ i _) }) <- sig Map.!? s = 
-         Term (Symbol $ "<v>") ty
+         Term (Symbol $ "<v>" <> s) ty
 toTemplate sig (Term s args) = Term s $ map (toTemplate sig) args
  
 -- When we generalize types, the types of the functions don't match, but

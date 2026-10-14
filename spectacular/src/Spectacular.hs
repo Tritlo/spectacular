@@ -20,18 +20,15 @@ import Data.Proxy (Proxy(..))
 
 import Data.CFTA.Equality (Node (Node), Edge (Edge), union, refold,
                            reducePartially, withoutRedundantEdges, fixWithin,
-                           termsPrune, TermFragment, EnumerateM,
-                           expandPartialTermFrag, PartialSymbol (..),
-                           UVar, uvarToInt)
+                           runs)
 import Data.CFTA.Symbol (Symbol (Symbol))
-import qualified Data.CFTA.Term as CT
 import Data.List hiding (union)
 import qualified Test.QuickCheck as QC
 import Test.QuickCheck.Random (mkQCGen)
 import qualified Data.Text as T
 import qualified System.Environment as Env
 import qualified Text.Read as TR
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe, isJust)
 import Data.Char (isAlphaNum)
 
 import qualified Control.Concurrent.Async as CCA
@@ -153,41 +150,34 @@ termSize (Term s args) = 1 + sum (map termSize args)
 -- best would probably be to apply this in the node.
 
 
-oracle :: ([Term],[Term])
-            -> (Int, TypeSkeleton)
-            -> UVar
-            -> Either (TermFragment Symbol) (Node Symbol)
-            -> EnumerateM Symbol (Bool,(Int,TypeSkeleton))
-oracle (templs,rws) st@(lvl,TCons tsk _) uv (Left tf)
-    -- Only the root UVar is checked. Its fragment holds the symbols of the
-    -- whole term, and the UVars below it hold the types.
-    | uvarToInt uv == 0 = do partial <- expandPartialTermFrag tf
-                             return (fragRepresents partial (rws ++ templs), st)
-    | otherwise = return (False, st)
-oracle _ st _ (Right _) = return (False, st)
+-- | Whether the term has a subterm that is an instance of the template.
+-- The subterms are the term, and the function and the argument of an
+-- application. The types are not subterms.
+containsInstance :: Term -> Term -> Bool
+containsInstance tmpl t =
+    isJust (matchTemplate tmpl t Map.empty) ||
+    case t of
+      Term "app" [_, f, v] -> containsInstance tmpl f || containsInstance tmpl v
+      _ -> False
 
--- | Whether a subterm of a partial term matches one of the templates.
--- A template symbol "<v>" matches any subterm. The types are not compared.
-fragRepresents :: CT.Term (PartialSymbol Symbol) -> [Term] -> Bool
-fragRepresents (CT.Node (ConcreteSymbol "filter") [_,t]) rwrs = fragRepresents t rwrs
-fragRepresents tf@(CT.Node (ConcreteSymbol "app") [_,_,f,v]) rwrs =
-    any (ruleMatches tf) rwrs || fragRepresents f rwrs || fragRepresents v rwrs
-fragRepresents tf@(CT.Node (ConcreteSymbol _) [_]) rwrs = any (ruleMatches tf) rwrs
-fragRepresents tf@(CT.Node (UVarHole _) []) rwrs = any (ruleMatches tf) rwrs
-fragRepresents tf@(CT.Node TruncatedRecursion []) rwrs = any (ruleMatches tf) rwrs
-fragRepresents tf _ = error $ "unrecognized frag! " ++ show tf
-
--- | Whether a partial term matches a template at its root.
-ruleMatches :: CT.Term (PartialSymbol Symbol) -> Term -> Bool
-ruleMatches _ (Term (Symbol "<v>") _) = True
-ruleMatches (CT.Node (ConcreteSymbol "app") [_,_,tf_f,tf_v])
-            (Term "app" [_,_,rw_f,rw_v]) =
-    ruleMatches tf_f rw_f && ruleMatches tf_v rw_v
-ruleMatches (CT.Node (ConcreteSymbol ts) [_]) (Term rws [_]) = ts == rws
-ruleMatches _ _ = False
-
-hasTemplate :: Term -> Bool
-hasTemplate (Term (Symbol s) args) = T.isPrefixOf "<v" s || any hasTemplate args
+-- | Match a template against a term, and extend the substitution of the
+-- template variables. A template variable matches a term of its type. A
+-- template variable that occurs again must match an equal term.
+matchTemplate :: Term -> Term -> Map Symbol Term -> Maybe (Map Symbol Term)
+matchTemplate (Term h@(Symbol name) [ty]) t s
+    | "<v>" `T.isPrefixOf` name =
+        case t of
+          Term _ (ty' : _) | ty' == ty ->
+              case Map.lookup h s of
+                Nothing -> Just (Map.insert h t s)
+                Just u | u == t -> Just s
+                _ -> Nothing
+          _ -> Nothing
+matchTemplate (Term "app" [ty, f, v]) (Term "app" [ty', f', v']) s
+    | ty == ty' = matchTemplate f f' s >>= matchTemplate v v'
+matchTemplate (Term a [ty]) (Term b [ty']) s
+    | a == b && ty == ty' = Just s
+matchTemplate _ _ _ = Nothing
 
 
 type TermSet = HS.HashSet Term
@@ -201,6 +191,8 @@ data GoState = GoState {seen :: !IntSet, --hashed integers
                         law_nums :: [Int],
                         current_terms :: [Term],
                         rewrite_terms :: ![Term],
+                        -- The templates when the current enumeration began.
+                        active_templates :: [Term],
                         ty_cons_to_check :: [TypeSkeleton],
                         phase_number :: Int
                         } deriving (Show)
@@ -272,6 +264,7 @@ tacularSpec' size phase extraReps sigs =
                   do let stecta@StEcta{..} = mkStecta sig monomorphiseType monomorphiseType
                      go' GoState {seen = IntSet.empty,
                                   rewrite_terms = [],
+                                  active_templates = [],
                                   unique_terms = Map.empty,
                                   stecta = stecta,
                                   so_far = 0,
@@ -352,8 +345,8 @@ tacularSpec' size phase extraReps sigs =
 
                 !folded <- return $ refold reduced
 
-                let o = oracle $ partition hasTemplate rewrite_terms
-                let terms = termsPrune (cur_lvl, tc) o folded
+                -- Each accepting run gives one term, as with termsPrune.
+                let terms = map fst $ runs "Mu" folded
                 -- We want to display a message once the first term is found.
                 -- in particular, it hangs after this messages for HugeLists 6
                 refreshCount "Finding first term " (" for " ++ show tc) "" cur_lvl so_far
@@ -361,11 +354,15 @@ tacularSpec' size phase extraReps sigs =
                     (t:_) -> refreshCount "Folded, exploring " (" for " ++ show tc) "" cur_lvl so_far
                     _ -> return ()
 
-                go' GoState{ current_terms=terms,..}
+                go' GoState{ current_terms=terms, active_templates = rewrite_terms, ..}
                go' GoState{law_nums = law_nums@(n:ns),
                            current_terms = (full_term:terms),
                            stecta = stecta@StEcta{..},
                            ..}
+                 -- The term has an instance of a known law in it, so a
+                 -- smaller term is equal to it.
+                 | any (`containsInstance` np_term) active_templates =
+                    go' GoState{current_terms = terms, ..}
                  | Term "filter" [current_ty,_] <- full_term,
                    not (current_ty `Map.member` unique_terms) =
                     go' (GoState{current_terms = terms,
@@ -486,11 +483,12 @@ tacularSpec' size phase extraReps sigs =
                             putStrLn ("\r" ++ law_str ++ replicate lsl ' ')
                             refreshCount  ("exploring " ++ (show current_ty))  ""
                                            "" cur_lvl sf'
-                            let Term "filter" [_, rewrite_term] = full_term
-                                new_rw = toTemplate gsig rewrite_term
+                            -- The template of the law is its new side, with
+                            -- the variables of the most general law.
+                            let lawRhs (Term "(==)" [_, _, rhs]) = rhs
+                                lawRhs law = law
+                                new_rw = toTemplate gsig (lawRhs most_general)
                                 new_rws = (new_rw:rewrite_terms)
-                                -- we've learned a new rewrite, so we restart the
-                                -- machine with a new oracle function.
                             (law_str:) <$>
                                go' GoState {
                                     seen = seen <> IntSet.singleton (hash np_term),
